@@ -1,0 +1,291 @@
+### ZapCloud API - Coleção de Testes
+### Compatível com VS Code REST Client, IntelliJ HTTP Client e Insomnia
+### ─────────────────────────────────────────────────────────────────
+### Como usar: instale a extensão "REST Client" no VS Code
+###            e clique em "Send Request" acima de cada bloco.
+
+@base = http://localhost:3000
+@contentType = application/json
+
+### ══════════════════════════════════════════════
+### 1. HEALTH CHECK
+### ══════════════════════════════════════════════
+
+# @name health
+GET {{base}}/health
+
+###
+
+### ══════════════════════════════════════════════
+### 2. AUTENTICAÇÃO
+### ══════════════════════════════════════════════
+
+# @name register
+POST {{base}}/api/auth/register
+Content-Type: {{contentType}}
+
+{
+  "name": "Lucas Dev",
+  "email": "lucas@zapcloud.com",
+  "password": "senha1234"
+}
+
+###
+
+# @name login
+POST {{base}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "email": "lucas@zapcloud.com",
+  "password": "senha1234"
+}
+
+###
+# Salvar token: copie o accessToken da resposta do login e cole abaixo
+@token = COLE_SEU_TOKEN_AQUI
+@refreshTokenValue = COLE_SEU_REFRESH_TOKEN_AQUI
+
+###
+
+# @name me
+GET {{base}}/api/auth/me
+Authorization: Bearer {{token}}
+
+###
+
+# @name refresh
+POST {{base}}/api/auth/refresh
+Content-Type: {{contentType}}
+
+{
+  "refreshToken": "{{refreshTokenValue}}"
+}
+
+###
+
+### ══════════════════════════════════════════════
+### 3. EMBEDDED SIGNUP - Meta / WhatsApp
+### ══════════════════════════════════════════════
+
+# Passo 1: Gerar URL do popup de autorização
+# @name authUrl
+GET {{base}}/api/meta/auth-url
+Authorization: Bearer {{token}}
+
+###
+
+# Passo 2: Callback (normalmente chamado pela Meta, mas pode testar manualmente)
+# GET {{base}}/api/meta/callback?code=SEU_CODE&state=SEU_USER_ID
+
+###
+
+# Listar contas WABA vinculadas
+# @name listAccounts
+GET {{base}}/api/meta/accounts
+Authorization: Bearer {{token}}
+
+###
+
+# Salvar o wabaAccountId da conta criada no Embedded Signup
+@wabaAccountId = COLE_SEU_WABA_ACCOUNT_ID_AQUI
+
+###
+
+# Desconectar conta WABA
+DELETE {{base}}/api/meta/accounts/{{wabaAccountId}}
+Authorization: Bearer {{token}}
+
+###
+
+### ══════════════════════════════════════════════
+### 4. CONTATOS
+### ══════════════════════════════════════════════
+
+# Criar / atualizar contato
+# @name upsertContact
+PUT {{base}}/api/whatsapp/{{wabaAccountId}}/contacts
+Content-Type: {{contentType}}
+Authorization: Bearer {{token}}
+
+{
+  "phone": "5511999999999",
+  "name": "João Silva",
+  "email": "joao@exemplo.com",
+  "tags": ["cliente", "vip"]
+}
+
+###
+
+# Listar contatos (com busca opcional)
+# @name listContacts
+GET {{base}}/api/whatsapp/{{wabaAccountId}}/contacts?page=1&limit=20&search=joão
+Authorization: Bearer {{token}}
+
+###
+
+# Salvar o contactId
+@contactId = COLE_SEU_CONTACT_ID_AQUI
+
+###
+
+# Buscar contato por ID (inclui últimas 20 mensagens)
+# @name getContact
+GET {{base}}/api/whatsapp/{{wabaAccountId}}/contacts/{{contactId}}
+Authorization: Bearer {{token}}
+
+###
+
+### ══════════════════════════════════════════════
+### 5. ENVIO DE MENSAGENS
+### ══════════════════════════════════════════════
+
+# Enviar mensagem de texto
+# @name sendText
+POST {{base}}/api/whatsapp/{{wabaAccountId}}/messages/text
+Content-Type: {{contentType}}
+Authorization: Bearer {{token}}
+
+{
+  "to": "5511999999999",
+  "message": "Olá! Esta é uma mensagem de teste do ZapCloud. 🚀"
+}
+
+###
+
+# Enviar template
+# @name sendTemplate
+POST {{base}}/api/whatsapp/{{wabaAccountId}}/messages/template
+Content-Type: {{contentType}}
+Authorization: Bearer {{token}}
+
+{
+  "to": "5511999999999",
+  "templateName": "hello_world",
+  "language": "pt_BR",
+  "components": []
+}
+
+###
+
+# Buscar histórico de mensagens de um contato
+# @name getMessages
+GET {{base}}/api/whatsapp/{{wabaAccountId}}/contacts/{{contactId}}/messages?page=1&limit=50
+Authorization: Bearer {{token}}
+
+###
+
+### ══════════════════════════════════════════════
+### 6. WEBHOOK DA META (simulações)
+### ══════════════════════════════════════════════
+
+# Verificação do webhook (GET - feita pela Meta ao configurar)
+# @name webhookVerify
+GET {{base}}/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=SEU_META_VERIFY_TOKEN&hub.challenge=CHALLENGE_STRING
+
+###
+
+# Simular mensagem recebida (POST - enviado pela Meta em tempo real)
+# @name webhookInbound
+POST {{base}}/api/whatsapp/webhook
+Content-Type: {{contentType}}
+
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550000000",
+              "phone_number_id": "SEU_PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "João Cliente" },
+                "wa_id": "5511999999999"
+              }
+            ],
+            "messages": [
+              {
+                "from": "5511999999999",
+                "id": "wamid.ABC123",
+                "timestamp": "1700000000",
+                "type": "text",
+                "text": { "body": "Olá, preciso de ajuda!" }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
+
+###
+
+# Simular atualização de status de mensagem
+# @name webhookStatus
+POST {{base}}/api/whatsapp/webhook
+Content-Type: {{contentType}}
+
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550000000",
+              "phone_number_id": "SEU_PHONE_NUMBER_ID"
+            },
+            "statuses": [
+              {
+                "id": "wamid.ABC123",
+                "status": "delivered",
+                "timestamp": "1700000001",
+                "recipient_id": "5511999999999"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
+
+###
+
+### ══════════════════════════════════════════════
+### 7. CENÁRIOS DE ERRO
+### ══════════════════════════════════════════════
+
+# Tentativa de acesso sem token
+GET {{base}}/api/meta/accounts
+
+###
+
+# E-mail inválido no registro
+POST {{base}}/api/auth/register
+Content-Type: {{contentType}}
+
+{
+  "name": "Teste",
+  "email": "email-invalido",
+  "password": "senha1234"
+}
+
+###
+
+# Rota inexistente (404)
+GET {{base}}/api/rota-que-nao-existe
+
+###

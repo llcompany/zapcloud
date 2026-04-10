@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ZapCloud — WhatsApp Business</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F0F2F5}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:99px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin 1s linear infinite;display:inline-block}
+input:focus{outline:none}
+button{cursor:pointer;transition:all .15s}
+.chat-bg{background-color:#F0F2F5;background-image:url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2325D366' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E")}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect}=React;
+
+const C={p:'#25D366',dk:'#128C7E',dkk:'#075E54',bbl:'#DCF8C6',bg:'#F0F2F5',tx:'#111B21',mt:'#667781',br:'#E9EDEF'};
+const API='http://localhost:3000';
+
+/* ── Avatar ── */
+function Av({name,sz=40,online=false}){
+  const pal=['#25D366','#128C7E','#075E54','#34B7F1','#ECB22E','#E01E5A'];
+  const bg=pal[name.charCodeAt(0)%pal.length];
+  const ini=name.split(' ').map(n=>n[0]).slice(0,2).join('');
+  return <div style={{position:'relative',width:sz,height:sz,flexShrink:0}}>
+    <div style={{width:'100%',height:'100%',borderRadius:'50%',background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:sz*.38}}>{ini}</div>
+    {online&&<span style={{position:'absolute',bottom:0,right:0,width:12,height:12,borderRadius:'50%',background:C.p,border:'2px solid #fff'}}/>}
+  </div>;
+}
+
+/* ── SVG Line Chart ── */
+function LineChart({data}){
+  const W=500,H=160,pad={t:10,r:20,b:30,l:40};
+  const iW=W-pad.l-pad.r,iH=H-pad.t-pad.b;
+  const maxV=Math.max(...data.flatMap(d=>[d.e,d.r]));
+  const x=i=>pad.l+i*(iW/(data.length-1));
+  const y=v=>pad.t+iH-(v/maxV)*iH;
+  const path=(key,col)=>{
+    const pts=data.map((d,i)=>`${i===0?'M':'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
+    return <path d={pts} fill="none" stroke={col} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>;
+  };
+  const dots=(key,col)=>data.map((d,i)=><circle key={i} cx={x(i)} cy={y(d[key])} r="3.5" fill={col}/>);
+  return <div style={{width:'100%',overflowX:'auto'}}>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',maxWidth:W}}>
+      {[0,1,2,3].map(i=>{
+        const yy=pad.t+iH-(i/3)*iH;
+        return <g key={i}>
+          <line x1={pad.l} y1={yy} x2={W-pad.r} y2={yy} stroke={C.br} strokeDasharray="4 4"/>
+          <text x={pad.l-4} y={yy+4} textAnchor="end" fontSize="10" fill={C.mt}>{Math.round((i/3)*maxV)}</text>
+        </g>;
+      })}
+      {data.map((d,i)=><text key={i} x={x(i)} y={H-8} textAnchor="middle" fontSize="11" fill={C.mt}>{d.d}</text>)}
+      {path('e',C.p)}{path('r',C.dk)}
+      {dots('e',C.p)}{dots('r',C.dk)}
+    </svg>
+  </div>;
+}
+
+/* ── STATUS icones simples ── */
+function Status({s}){
+  if(s==='sent')      return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>;
+  if(s==='delivered') return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"><polyline points="18 6 7 17 2 12"/><polyline points="23 6 12 17"/></svg>;
+  if(s==='read')      return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34B7F1" strokeWidth="2"><polyline points="18 6 7 17 2 12"/><polyline points="23 6 12 17"/></svg>;
+  return null;
+}
+
+/* ══════════════════════════ LOGIN ══════════════════════════ */
+function Login({onLogin}){
+  const [tab,setTab]=useState('login');
+  const [f,setF]=useState({name:'',email:'',pw:''});
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState('');
+  const upd=k=>e=>setF({...f,[k]:e.target.value});
+  const submit=async e=>{
+    e.preventDefault();setLoading(true);setErr('');
+    try{
+      const endpoint=tab==='login'?'login':'register';
+      const body=tab==='login'?{email:f.email,password:f.pw}:{name:f.name,email:f.email,password:f.pw};
+      const r=await fetch(`${API}/api/auth/${endpoint}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.message||'Erro ao entrar');
+      onLogin(d.data.user,d.data.accessToken);
+    }catch(e){setErr(e.message);}
+    finally{setLoading(false);}
+  };
+  const inp={width:'100%',padding:'12px 14px',borderRadius:12,border:`1.5px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',display:'block'};
+  return <div style={{minHeight:'100vh',display:'flex'}}>
+    {/* Esquerdo */}
+    <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:48,background:'linear-gradient(135deg,#075E54,#128C7E,#25D366)'}}>
+      <div style={{color:'#fff',maxWidth:360,textAlign:'center'}}>
+        <div style={{width:84,height:84,borderRadius:22,background:'rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',boxShadow:'0 8px 30px rgba(0,0,0,.2)'}}>
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h1 style={{fontSize:40,fontWeight:800,marginBottom:8}}>ZapCloud</h1>
+        <p style={{fontSize:16,opacity:.9,marginBottom:28,lineHeight:1.5}}>Plataforma completa para gerenciar seu WhatsApp Business</p>
+        {['Envio em massa e automações','Gestão de contatos e tags','Templates aprovados pela Meta','Relatórios em tempo real'].map(t=>(
+          <div key={t} style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,textAlign:'left'}}>
+            <div style={{width:22,height:22,borderRadius:'50%',background:'rgba(255,255,255,.2)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <span style={{opacity:.9,fontSize:14}}>{t}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+    {/* Direito */}
+    <div style={{width:400,display:'flex',alignItems:'center',justifyContent:'center',padding:40,background:'#fff'}}>
+      <div style={{width:'100%',maxWidth:320}}>
+        <h2 style={{fontSize:24,fontWeight:700,color:C.tx,marginBottom:4}}>{tab==='login'?'Bem-vindo de volta':'Crie sua conta'}</h2>
+        <p style={{fontSize:13,color:C.mt,marginBottom:22}}>{tab==='login'?'Entre para acessar seu painel':'Comece gratuitamente hoje'}</p>
+        <div style={{display:'flex',background:C.bg,borderRadius:14,padding:4,marginBottom:22}}>
+          {['login','cadastro'].map(t=><button key={t} onClick={()=>setTab(t)}
+            style={{flex:1,padding:'8px 0',borderRadius:10,border:'none',fontWeight:500,fontSize:13,background:tab===t?'#fff':'transparent',color:tab===t?C.dkk:C.mt,boxShadow:tab===t?'0 1px 4px rgba(0,0,0,.1)':'none'}}>
+            {t==='login'?'Entrar':'Cadastrar'}
+          </button>)}
+        </div>
+        <form onSubmit={submit}>
+          {tab==='cadastro'&&<div style={{marginBottom:12}}>
+            <label style={{display:'block',fontSize:13,fontWeight:500,color:C.tx,marginBottom:5}}>Nome completo</label>
+            <input style={inp} type="text" placeholder="Seu nome" value={f.name} onChange={upd('name')} required/>
+          </div>}
+          <div style={{marginBottom:12}}>
+            <label style={{display:'block',fontSize:13,fontWeight:500,color:C.tx,marginBottom:5}}>E-mail</label>
+            <input style={inp} type="email" placeholder="seu@email.com" value={f.email} onChange={upd('email')} required/>
+          </div>
+          <div style={{marginBottom:20}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+              <label style={{fontSize:13,fontWeight:500,color:C.tx}}>Senha</label>
+              {tab==='login'&&<a href="#" style={{fontSize:12,color:C.p,textDecoration:'none'}}>Esqueci</a>}
+            </div>
+            <input style={inp} type="password" placeholder="••••••••" value={f.pw} onChange={upd('pw')} required/>
+          </div>
+          {err&&<div style={{marginBottom:12,padding:'10px 14px',borderRadius:10,background:'#FF525218',color:'#c0392b',fontSize:13}}>{err}</div>}
+          <button type="submit" disabled={loading}
+            style={{width:'100%',padding:13,borderRadius:12,border:'none',background:loading?C.dk:C.p,color:'#fff',fontWeight:700,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+            {loading?<><span className="spin"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>Aguarde...</>:(tab==='login'?'Entrar':'Criar conta')}
+          </button>
+        </form>
+        <p style={{textAlign:'center',fontSize:11,color:C.mt,marginTop:16}}>Ao continuar você concorda com os <a href="#" style={{color:C.p}}>Termos de Uso</a></p>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ DASHBOARD ══════════════════════════ */
+function Dashboard({onNavigate,token}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    if(!token)return;
+    fetch(`${API}/api/dashboard/metrics`,{headers:{'Authorization':`Bearer ${token}`}})
+      .then(r=>r.json()).then(d=>{ if(d.success) setData(d.data); })
+      .catch(()=>{}).finally(()=>setLoading(false));
+  },[token]);
+
+  const fmt=n=>n>=1000?(n/1000).toFixed(1)+'k':String(n);
+  const fmtR=v=>'R$ '+parseFloat(v||0).toFixed(2).replace('.',',');
+
+  const metrics=data?[
+    {label:'Clientes no CRM',    val:fmt(data.totalClientes), sub:'total cadastrados',    col:'#25D366',icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
+    {label:'Ativos (7 dias)',     val:fmt(data.ativos7dias),   sub:'fizeram pedido',       col:'#128C7E',icon:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"},
+    {label:'Pedidos (48h)',        val:fmt(data.pedidosHoje),   sub:'ontem + hoje',         col:'#075E54',icon:"M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"},
+    {label:'Ticket médio',        val:fmtR(data.ticketMedio),  sub:'por cliente',          col:'#34B7F1',icon:"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+  ]:[
+    {label:'Clientes no CRM',    val:'—',col:'#25D366',icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
+    {label:'Ativos (7 dias)',     val:'—',col:'#128C7E',icon:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"},
+    {label:'Pedidos hoje',        val:'—',col:'#075E54',icon:"M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 1-8 0"},
+    {label:'Ticket médio',        val:'—',col:'#34B7F1',icon:"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+  ];
+
+  const chartData=data?.chartData||[{d:'Seg',e:0,r:0},{d:'Ter',e:0,r:0},{d:'Qua',e:0,r:0},{d:'Qui',e:0,r:0},{d:'Sex',e:0,r:0},{d:'Sáb',e:0,r:0},{d:'Dom',e:0,r:0}];
+
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
+      <div>
+        <h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>Dashboard</h1>
+        <p style={{fontSize:13,color:C.mt,marginTop:2}}>Dados reais dos seus clientes</p>
+      </div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        {data&&<span style={{fontSize:12,color:C.mt}}>{data.totalPedidos} pedidos totais · {data.campanhasTotal} campanhas</span>}
+        <button onClick={()=>onNavigate('conversations')} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,cursor:'pointer'}}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Nova mensagem
+        </button>
+      </div>
+    </div>
+
+    {/* Cards */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
+      {metrics.map(m=><div key={m.label} style={{background:'#fff',borderRadius:18,padding:20,border:`1px solid ${C.br}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+          <div style={{width:40,height:40,borderRadius:12,background:m.col+'18',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={m.col} strokeWidth="2"><path d={m.icon}/></svg>
+          </div>
+          {loading&&<span className="spin" style={{display:'inline-block'}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>}
+        </div>
+        <div style={{fontSize:26,fontWeight:800,color:C.tx,marginBottom:2}}>{m.val}</div>
+        <div style={{fontSize:12,color:C.mt}}>{m.label}</div>
+        {m.sub&&<div style={{fontSize:11,color:C.p,marginTop:3}}>{m.sub}</div>}
+      </div>)}
+    </div>
+
+    {/* Gráfico */}
+    {/* Cards extras */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
+      <div style={{background:'#fff',borderRadius:18,padding:20,border:`1px solid ${C.br}`}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.tx,marginBottom:12}}>Resumo CRM</p>
+        {[
+          ['Clientes ativos 30 dias', fmt(data?.ativos30dias||0)],
+          ['Inativos (+30 dias)',      fmt(Math.max(0,(data?.totalClientes||0)-(data?.ativos30dias||0)))],
+          ['Total gasto (R$)',         fmtR(data?.totalGasto||0)],
+        ].map(([l,v])=><div key={l} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${C.br}`}}>
+          <span style={{fontSize:12,color:C.mt}}>{l}</span>
+          <span style={{fontSize:12,fontWeight:600,color:C.tx}}>{v}</span>
+        </div>)}
+      </div>
+      <div style={{background:'#fff',borderRadius:18,padding:20,border:`1px solid ${C.br}`}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.tx,marginBottom:12}}>Campanhas</p>
+        {[
+          ['Total criadas',  fmt(data?.campanhasTotal||0)],
+          ['Em execução',    fmt(data?.campanhasAtivas||0)],
+          ['Clientes alvo',  fmt(data?.totalClientes||0)],
+        ].map(([l,v])=><div key={l} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${C.br}`}}>
+          <span style={{fontSize:12,color:C.mt}}>{l}</span>
+          <span style={{fontSize:12,fontWeight:600,color:C.tx}}>{v}</span>
+        </div>)}
+      </div>
+      <div style={{background:`linear-gradient(135deg,${C.dkk},${C.p})`,borderRadius:18,padding:20,color:'#fff'}}>
+        <p style={{fontSize:13,fontWeight:600,marginBottom:8}}>Multipedidos</p>
+        <div style={{fontSize:32,fontWeight:800,marginBottom:4}}>{fmt(data?.pedidosHoje||0)}</div>
+        <p style={{fontSize:12,opacity:.85}}>pedidos hoje</p>
+        <div style={{marginTop:14,fontSize:11,opacity:.8}}>
+          {data?.totalPedidos||0} pedidos no total · {data?.ativos7dias||0} clientes esta semana
+        </div>
+        <button onClick={()=>onNavigate('integracoes')}
+          style={{marginTop:12,padding:'7px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,.4)',background:'transparent',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+          Ver integração →
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ CONVERSAS ══════════════════════════ */
+const CONTACTS=[];
+const MSGS={};
+function Conversations({token}){
+  const [sel,setSel]=useState(CONTACTS[0]);
+  const [msgs,setMsgs]=useState(MSGS[1]||[]);
+  const [inp,setInp]=useState('');
+  const [search,setSearch]=useState('');
+  const [view,setView]=useState('both');
+  const [sending,setSending]=useState(false);
+  const bot=useRef(null);
+  useEffect(()=>{bot.current?.scrollIntoView({behavior:'smooth'});},[msgs]);
+  const pick=c=>{setSel(c);setMsgs(MSGS[c.id]||[]);};
+  const send=async()=>{
+    if(!inp.trim()||sending)return;
+    const t=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    const text=inp; setInp(''); setSending(true);
+    setMsgs(p=>[...p,{id:Date.now(),from:'me',text,time:t,s:'sent'}]);
+    try{
+      const phone=sel.phone.replace(/\D/g,'');
+      await fetch(`${API}/api/whatsapp/send`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({to:phone,message:text})});
+    }catch(e){console.error('Erro ao enviar:',e);}
+    finally{setSending(false);}
+  };
+  const filtered=CONTACTS.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));
+  return <div style={{display:'flex',height:'100%',overflow:'hidden'}}>
+    {/* Lista */}
+    <div style={{width:300,flexShrink:0,borderRight:`1px solid ${C.br}`,display:'flex',flexDirection:'column',background:'#fff'}}>
+      <div style={{padding:14,borderBottom:`1px solid ${C.br}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <span style={{fontWeight:700,fontSize:16,color:C.tx}}>Conversas</span>
+          <button style={{width:32,height:32,borderRadius:9,border:'none',background:C.p+'18',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:12,background:C.bg}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto'}}>
+        {filtered.map(c=><div key={c.id} onClick={()=>pick(c)}
+          style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer',borderBottom:`1px solid ${C.br}`,background:sel?.id===c.id?C.p+'12':'transparent'}}>
+          <Av name={c.name} sz={44} online={c.online}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:'flex',justifyContent:'space-between'}}>
+              <span style={{fontWeight:500,fontSize:13,color:C.tx}}>{c.name}</span>
+              <span style={{fontSize:11,color:c.unread?C.p:C.mt}}>{c.time}</span>
+            </div>
+            <p style={{fontSize:12,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',marginTop:1}}>{c.lastMsg}</p>
+          </div>
+          {c.unread>0&&<span style={{width:20,height:20,borderRadius:'50%',background:C.p,color:'#fff',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{c.unread}</span>}
+        </div>)}
+      </div>
+    </div>
+    {/* Chat */}
+    <div style={{flex:1,display:'flex',flexDirection:'column'}}>
+      {sel&&<>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:`1px solid ${C.br}`,background:'#fff',boxShadow:'0 1px 3px rgba(0,0,0,.05)'}}>
+          <Av name={sel.name} sz={40} online={sel.online}/>
+          <div style={{flex:1}}>
+            <p style={{fontWeight:600,fontSize:13,color:C.tx}}>{sel.name}</p>
+            <p style={{fontSize:12,color:sel.online?C.p:C.mt}}>{sel.online?'online':sel.phone}</p>
+          </div>
+          {[["M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12"],["M23 7l-7 5 7 5V7zM1 5h15v14H1z"],["M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"]].map((d,i)=>(
+            <button key={i} style={{width:36,height:36,borderRadius:'50%',border:'none',background:'none',display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d={d[0]}/></svg>
+            </button>
+          ))}
+        </div>
+        <div className="chat-bg" style={{flex:1,overflowY:'auto',padding:14}}>
+          {msgs.map(m=><div key={m.id} style={{display:'flex',justifyContent:m.from==='me'?'flex-end':'flex-start',marginBottom:5}}>
+            <div style={{maxWidth:'65%',padding:'8px 11px',boxShadow:'0 1px 2px rgba(0,0,0,.08)',background:m.from==='me'?C.bbl:'#fff',borderRadius:m.from==='me'?'16px 16px 4px 16px':'16px 16px 16px 4px'}}>
+              <p style={{fontSize:13,color:C.tx,lineHeight:1.4}}>{m.text}</p>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:3,marginTop:2}}>
+                <span style={{fontSize:11,color:C.mt}}>{m.time}</span>
+                {m.from==='me'&&<Status s={m.s}/>}
+              </div>
+            </div>
+          </div>)}
+          <div ref={bot}/>
+        </div>
+        <div style={{padding:'10px 14px',borderTop:`1px solid ${C.br}`,background:'#fff',display:'flex',alignItems:'center',gap:8}}>
+          <button style={{width:36,height:36,borderRadius:'50%',border:'none',background:'none',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <div style={{flex:1,display:'flex',alignItems:'center',gap:8,padding:'9px 14px',borderRadius:24,background:C.bg}}>
+            <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()}
+              placeholder="Digite uma mensagem" style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
+          </div>
+          <button onClick={send} style={{width:40,height:40,borderRadius:'50%',border:'none',background:inp.trim()?C.p:C.mt,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,.15)'}}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </>}
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ CONTATOS ══════════════════════════ */
+const ALL_CONTACTS=[];
+const TAG_COL={cliente:{bg:'#25D36618',c:'#128C7E'},vip:{bg:'#ECB22E18',c:'#b45309'},suporte:{bg:'#34B7F118',c:'#0369a1'},lead:{bg:'#8B5CF618',c:'#6d28d9'}};
+function Contacts(){
+  const [search,setSearch]=useState('');
+  const [filter,setFilter]=useState('todos');
+  const tags=['todos','cliente','vip','suporte','lead'];
+  const list=ALL_CONTACTS.filter(c=>(filter==='todos'||c.tags.includes(filter))&&c.name.toLowerCase().includes(search.toLowerCase()));
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+      <div><h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>Contatos</h1><p style={{fontSize:13,color:C.mt}}>{ALL_CONTACTS.length} cadastrados</p></div>
+      <button style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Novo
+      </button>
+    </div>
+    <div style={{display:'flex',gap:10,marginBottom:18,flexWrap:'wrap'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:200,padding:'9px 14px',borderRadius:12,background:'#fff',border:`1px solid ${C.br}`}}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
+      </div>
+      {tags.map(t=><button key={t} onClick={()=>setFilter(t)}
+        style={{padding:'9px 16px',borderRadius:12,border:filter===t?'none':`1px solid ${C.br}`,background:filter===t?C.p:'#fff',color:filter===t?'#fff':C.mt,fontWeight:500,fontSize:12,textTransform:'capitalize'}}>
+        {t}
+      </button>)}
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
+      {list.map(c=><div key={c.id} style={{background:'#fff',borderRadius:18,padding:18,border:`1px solid ${C.br}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+          <Av name={c.name} sz={44} online={c.online}/>
+          <div style={{minWidth:0}}><p style={{fontWeight:600,fontSize:13,color:C.tx}}>{c.name}</p><p style={{fontSize:12,color:C.mt}}>{c.phone}</p></div>
+        </div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
+          {c.tags.map(t=>{const s=TAG_COL[t]||{bg:C.bg,c:C.mt};return <span key={t} style={{fontSize:11,padding:'3px 8px',borderRadius:20,background:s.bg,color:s.c,textTransform:'capitalize'}}>{t}</span>;})}
+        </div>
+        <button style={{width:'100%',padding:8,borderRadius:10,border:'none',background:C.p+'18',color:C.p,fontWeight:500,fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Enviar mensagem
+        </button>
+      </div>)}
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ CONECTAR ══════════════════════════ */
+
+/* ── Sub: Sucesso genérico ── */
+function ConnectSuccess({title,sub,phone,name,onReset}){
+  return <div style={{background:'#fff',borderRadius:20,padding:40,textAlign:'center',border:`1px solid ${C.br}`}}>
+    <div style={{width:70,height:70,borderRadius:'50%',background:C.p+'20',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <h2 style={{fontSize:20,fontWeight:700,color:C.tx,marginBottom:6}}>{title}</h2>
+    <p style={{fontSize:13,color:C.mt,marginBottom:20}}>{sub}</p>
+    {(phone||name)&&<div style={{background:C.bg,borderRadius:14,padding:16,textAlign:'left',marginBottom:18,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:12}}>
+      <div style={{width:44,height:44,borderRadius:12,background:C.p,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </div>
+      <div>
+        <p style={{fontWeight:600,fontSize:13,color:C.tx}}>{name||'WhatsApp Business'}</p>
+        {phone&&<p style={{fontSize:12,color:C.mt}}>{phone}</p>}
+        <span style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:C.p+'18',color:C.p,display:'inline-block',marginTop:4}}>● Conectado</span>
+      </div>
+    </div>}
+    <button onClick={onReset} style={{fontSize:13,color:C.p,border:'none',background:'none',fontWeight:500,cursor:'pointer'}}>Conectar outra conta</button>
+  </div>;
+}
+
+/* ── Sub: API Oficial (Meta) ── */
+function ConnectOficial({token,onBack}){
+  const [step,setStep]=useState(0);
+  const [done,setDone]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [account,setAccount]=useState(null);
+  useEffect(()=>{
+    if(!token)return;
+    fetch(`${API}/api/auth/me`,{headers:{'Authorization':`Bearer ${token}`}})
+      .then(r=>r.json()).then(d=>{
+        const acc=d?.data?.wabaAccounts?.[0];
+        if(acc){setAccount(acc);setDone(true);}
+      }).catch(()=>{});
+  },[token]);
+  const steps=[
+    {t:'Acesse o Meta for Developers',d:'Acesse developers.facebook.com e faça login.',e:'🌐'},
+    {t:'Crie um App de Negócios',      d:"Clique em 'Criar app' → selecione 'Negócios'.",e:'📱'},
+    {t:'Configure o WhatsApp',         d:"Adicione o produto 'WhatsApp' ao seu app.",    e:'⚙️'},
+    {t:'Autorize o ZapCloud',          d:"Clique em 'Conectar conta' para autorizar.",   e:'🔗'},
+  ];
+  const connect=()=>{setLoading(true);setTimeout(()=>{setLoading(false);setDone(true);},1600);};
+  return <div style={{padding:24,maxWidth:580,margin:'0 auto',overflowY:'auto',height:'100%'}}>
+    <button onClick={onBack} style={{display:'flex',alignItems:'center',gap:6,border:'none',background:'none',color:C.mt,fontSize:13,fontWeight:500,marginBottom:18,cursor:'pointer'}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+      Voltar
+    </button>
+    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <div style={{width:44,height:44,borderRadius:12,background:'#1877F218',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+      </div>
+      <div>
+        <h1 style={{fontSize:18,fontWeight:700,color:C.tx,marginBottom:2}}>API Oficial do WhatsApp</h1>
+        <p style={{fontSize:12,color:C.mt}}>Via Meta for Developers · 100% oficial</p>
+      </div>
+    </div>
+    {done?(
+      <ConnectSuccess
+        title="Conta API conectada!"
+        sub="Sua WABA foi vinculada com sucesso ao ZapCloud"
+        name={account?.displayName||'Minha Empresa'}
+        phone="+55 47 9727-7378"
+        onReset={()=>{setDone(false);setStep(0);}}
+      />
+    ):(
+      <>
+        <div style={{background:'#fff',borderRadius:18,padding:18,marginBottom:14,border:`1px solid ${C.br}`}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
+            <span style={{fontSize:13,fontWeight:500,color:C.tx}}>Progresso</span>
+            <span style={{fontSize:13,fontWeight:700,color:C.p}}>{Math.min(step,4)}/4</span>
+          </div>
+          <div style={{height:8,borderRadius:99,background:C.bg}}>
+            <div style={{height:8,borderRadius:99,background:C.p,width:`${(Math.min(step,4)/4)*100}%`,transition:'width .4s'}}/>
+          </div>
+        </div>
+        {steps.map((s,i)=>{
+          const isDone=i<step,isActive=i===step;
+          return <div key={i} onClick={()=>i<=step&&setStep(i)}
+            style={{background:'#fff',borderRadius:16,padding:16,marginBottom:10,border:`${isActive?2:1}px solid ${isActive?C.p:C.br}`,cursor:'pointer',opacity:i>step?.45:1,display:'flex',alignItems:'flex-start',gap:14}}>
+            <div style={{width:40,height:40,borderRadius:'50%',background:isDone?C.p:isActive?C.p+'15':C.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>
+              {isDone?<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>:s.e}
+            </div>
+            <div style={{flex:1}}>
+              <p style={{fontWeight:600,fontSize:13,color:C.tx,marginBottom:3}}>Passo {i+1}: {s.t}</p>
+              <p style={{fontSize:12,color:C.mt,lineHeight:1.5}}>{s.d}</p>
+            </div>
+            {isActive&&<button onClick={e=>{e.stopPropagation();setStep(i+1);}}
+              style={{padding:'6px 14px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:12,flexShrink:0,display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
+              Próximo <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>}
+          </div>;
+        })}
+        <button onClick={connect} disabled={loading}
+          style={{width:'100%',padding:15,borderRadius:18,border:'none',background:step>=3?C.p:C.mt,color:'#fff',fontWeight:700,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 4px 14px rgba(0,0,0,.12)',marginTop:4,cursor:'pointer'}}>
+          {loading?<><span className="spin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>Conectando...</>:<>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+            Conectar conta WhatsApp</>}
+        </button>
+        <p style={{textAlign:'center',fontSize:11,color:C.mt,marginTop:10}}>🔒 Seus dados são protegidos. Nenhuma senha é armazenada.</p>
+      </>
+    )}
+  </div>;
+}
+
+/* ── Sub: WhatsApp Business (QR Code) ── */
+function ConnectBusiness({token,onBack}){
+  const [status,setStatus]=useState('idle'); // idle | loading | qr_ready | connected | error
+  const [qrBase64,setQrBase64]=useState(null);
+  const [sessionId,setSessionId]=useState(null);
+  const [phone,setPhone]=useState(null);
+  const [name,setName]=useState(null);
+  const [err,setErr]=useState('');
+  const pollRef=useRef(null);
+
+  const stopPoll=()=>{ if(pollRef.current){clearInterval(pollRef.current);pollRef.current=null;} };
+  useEffect(()=>()=>stopPoll(),[]);
+
+  const startPoll=(sid)=>{
+    stopPoll();
+    pollRef.current=setInterval(async()=>{
+      try{
+        const r=await fetch(`${API}/api/wa-business/session/${sid}`,{headers:{'Authorization':`Bearer ${token}`}});
+        const d=await r.json();
+        if(d.status==='qr_ready'&&d.qrBase64){setQrBase64(d.qrBase64);setStatus('qr_ready');}
+        if(d.status==='connected'){setStatus('connected');setPhone(d.phone);setName(d.name);stopPoll();}
+      }catch(e){}
+    },2500);
+  };
+
+  const iniciar=async()=>{
+    setStatus('loading');setErr('');
+    try{
+      const r=await fetch(`${API}/api/wa-business/session`,{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'}});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.message||'Erro ao iniciar sessão');
+      setSessionId(d.sessionId);
+      if(d.status==='connected'){setStatus('connected');setPhone(d.phone);setName(d.name);}
+      else{setStatus('loading');startPoll(d.sessionId);}
+    }catch(e){setStatus('error');setErr(e.message);}
+  };
+
+  const desconectar=async()=>{
+    if(!sessionId)return;
+    stopPoll();
+    try{ await fetch(`${API}/api/wa-business/session/${sessionId}`,{method:'DELETE',headers:{'Authorization':`Bearer ${token}`}}); }catch{}
+    setStatus('idle');setQrBase64(null);setSessionId(null);setPhone(null);setName(null);
+  };
+
+  return <div style={{padding:24,maxWidth:560,margin:'0 auto',overflowY:'auto',height:'100%'}}>
+    <button onClick={onBack} style={{display:'flex',alignItems:'center',gap:6,border:'none',background:'none',color:C.mt,fontSize:13,fontWeight:500,marginBottom:18,cursor:'pointer'}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+      Voltar
+    </button>
+    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <div style={{width:44,height:44,borderRadius:12,background:C.p+'18',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><rect x="2" y="2" width="8" height="8"/><rect x="14" y="2" width="8" height="8"/><rect x="2" y="14" width="8" height="8"/><rect x="14" y="14" width="4" height="4"/><rect x="20" y="14" width="2" height="2"/><rect x="14" y="20" width="2" height="2"/><rect x="18" y="20" width="4" height="2"/></svg>
+      </div>
+      <div>
+        <h1 style={{fontSize:18,fontWeight:700,color:C.tx,marginBottom:2}}>WhatsApp Business</h1>
+        <p style={{fontSize:12,color:C.mt}}>Conecte pelo QR Code · Sem conta Meta necessária</p>
+      </div>
+    </div>
+
+    {/* Aviso */}
+    <div style={{background:'#FEF3C7',border:'1px solid #F59E0B',borderRadius:12,padding:'10px 14px',marginBottom:18,display:'flex',gap:10,alignItems:'flex-start'}}>
+      <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
+      <p style={{fontSize:12,color:'#92400E',lineHeight:1.5}}>Esta conexão usa o WhatsApp Business App. É uma alternativa prática, mas não é oficialmente suportada pela Meta. Recomendamos a API Oficial para negócios que precisam de estabilidade máxima.</p>
+    </div>
+
+    {status==='idle'&&(
+      <div style={{background:'#fff',borderRadius:20,padding:36,textAlign:'center',border:`1px solid ${C.br}`}}>
+        <div style={{width:80,height:80,borderRadius:'50%',background:C.p+'12',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}>
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="1.5"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="4" height="4"/><rect x="20" y="18" width="2" height="4"/><rect x="16" y="20" width="4" height="2"/></svg>
+        </div>
+        <h2 style={{fontSize:17,fontWeight:700,color:C.tx,marginBottom:8}}>Conectar via QR Code</h2>
+        <p style={{fontSize:13,color:C.mt,marginBottom:24,lineHeight:1.6}}>Abra o WhatsApp Business no celular, vá em <strong>Aparelhos conectados</strong> e escaneie o QR Code.</p>
+        <button onClick={iniciar} style={{padding:'13px 32px',borderRadius:16,border:'none',background:C.p,color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',boxShadow:'0 4px 14px rgba(37,211,102,.3)'}}>
+          Gerar QR Code
+        </button>
+      </div>
+    )}
+
+    {status==='loading'&&(
+      <div style={{background:'#fff',borderRadius:20,padding:48,textAlign:'center',border:`1px solid ${C.br}`}}>
+        <span className="spin" style={{display:'block',width:48,height:48,margin:'0 auto 16px'}}>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </span>
+        <p style={{fontSize:14,fontWeight:500,color:C.tx}}>Gerando QR Code...</p>
+        <p style={{fontSize:12,color:C.mt,marginTop:6}}>Aguarde alguns segundos</p>
+      </div>
+    )}
+
+    {status==='qr_ready'&&qrBase64&&(
+      <div style={{background:'#fff',borderRadius:20,padding:28,textAlign:'center',border:`2px solid ${C.p}`,boxShadow:'0 4px 24px rgba(37,211,102,.12)'}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.p,marginBottom:4}}>📱 QR Code gerado!</p>
+        <p style={{fontSize:12,color:C.mt,marginBottom:18}}>Escaneie com o WhatsApp Business → Aparelhos conectados</p>
+        <div style={{display:'inline-block',padding:12,background:'#fff',borderRadius:16,border:`1px solid ${C.br}`,boxShadow:'0 2px 12px rgba(0,0,0,.08)'}}>
+          <img src={qrBase64} alt="QR Code" style={{width:220,height:220,display:'block'}}/>
+        </div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginTop:18}}>
+          <span className="spin" style={{display:'inline-block'}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </span>
+          <span style={{fontSize:12,color:C.mt}}>Aguardando escaneamento...</span>
+        </div>
+        <button onClick={desconectar} style={{marginTop:14,fontSize:12,color:'#ef4444',border:'none',background:'none',fontWeight:500,cursor:'pointer'}}>Cancelar</button>
+      </div>
+    )}
+
+    {status==='connected'&&(
+      <ConnectSuccess
+        title="WhatsApp conectado!"
+        sub="Seu WhatsApp Business foi vinculado com sucesso"
+        phone={phone}
+        name={name}
+        onReset={()=>{desconectar();}}
+      />
+    )}
+
+    {status==='error'&&(
+      <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:16,padding:24,textAlign:'center'}}>
+        <p style={{fontSize:14,fontWeight:600,color:'#DC2626',marginBottom:8}}>Erro ao conectar</p>
+        <p style={{fontSize:12,color:'#7F1D1D',marginBottom:18}}>{err||'Verifique se o servidor está rodando e tente novamente.'}</p>
+        <button onClick={()=>setStatus('idle')} style={{padding:'10px 24px',borderRadius:12,border:'none',background:'#DC2626',color:'#fff',fontWeight:600,fontSize:13,cursor:'pointer'}}>
+          Tentar novamente
+        </button>
+      </div>
+    )}
+  </div>;
+}
+
+/* ── Principal: escolha do método ── */
+function Connect({token}){
+  const [method,setMethod]=useState(null); // null | 'oficial' | 'business'
+
+  if(method==='oficial')   return <ConnectOficial  token={token} onBack={()=>setMethod(null)}/>;
+  if(method==='business')  return <ConnectBusiness token={token} onBack={()=>setMethod(null)}/>;
+
+  return <div style={{padding:24,maxWidth:600,margin:'0 auto',overflowY:'auto',height:'100%'}}>
+    <h1 style={{fontSize:22,fontWeight:700,color:C.tx,marginBottom:4}}>Conectar WhatsApp</h1>
+    <p style={{fontSize:13,color:C.mt,marginBottom:28}}>Escolha como deseja conectar seu número ao ZapCloud</p>
+
+    {/* Card API Oficial */}
+    <div onClick={()=>setMethod('oficial')}
+      style={{background:'#fff',borderRadius:20,padding:24,marginBottom:14,border:`1.5px solid ${C.br}`,cursor:'pointer',display:'flex',gap:18,alignItems:'center',transition:'border .2s'}}>
+      <div style={{width:56,height:56,borderRadius:16,background:'linear-gradient(135deg,#1877F2,#42A5F5)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+      </div>
+      <div style={{flex:1}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+          <p style={{fontWeight:700,fontSize:15,color:C.tx}}>API Oficial do WhatsApp</p>
+          <span style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:'#22c55e18',color:'#16a34a',fontWeight:600}}>RECOMENDADO</span>
+        </div>
+        <p style={{fontSize:12,color:C.mt,lineHeight:1.5}}>Conexão 100% oficial via Meta for Developers. Maior estabilidade, suporte, sem risco de ban.</p>
+        <div style={{display:'flex',gap:16,marginTop:10}}>
+          {['✅ Sem risco de ban','✅ Alta estabilidade','✅ Suporte Meta'].map(t=><span key={t} style={{fontSize:11,color:C.p}}>{t}</span>)}
+        </div>
+      </div>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+
+    {/* Card WhatsApp Business */}
+    <div onClick={()=>setMethod('business')}
+      style={{background:'#fff',borderRadius:20,padding:24,border:`1.5px solid ${C.br}`,cursor:'pointer',display:'flex',gap:18,alignItems:'center'}}>
+      <div style={{width:56,height:56,borderRadius:16,background:`linear-gradient(135deg,${C.dkk},${C.p})`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="4" height="4"/><rect x="20" y="18" width="2" height="4"/><rect x="16" y="20" width="4" height="2"/></svg>
+      </div>
+      <div style={{flex:1}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+          <p style={{fontWeight:700,fontSize:15,color:C.tx}}>WhatsApp Business</p>
+          <span style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:'#F59E0B18',color:'#92400E',fontWeight:600}}>QR CODE</span>
+        </div>
+        <p style={{fontSize:12,color:C.mt,lineHeight:1.5}}>Conecte pelo QR Code, sem precisar de conta na Meta. Mais simples, ideal para começar rápido.</p>
+        <div style={{display:'flex',gap:16,marginTop:10}}>
+          {['📱 Escaneie o QR','⚡ Conecta em segundos','🔧 Sem configuração'].map(t=><span key={t} style={{fontSize:11,color:C.mt}}>{t}</span>)}
+        </div>
+      </div>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ INTEGRAÇÕES ══════════════════════════ */
+function Integracoes({token}){
+  const [status,setStatus]=useState(null);
+  const [copied,setCopied]=useState(false);
+  const [testing,setTesting]=useState(false);
+  const [testResult,setTestResult]=useState(null);
+
+  useEffect(()=>{
+    if(!token)return;
+    fetch(`${API}/api/multipedidos/status`,{headers:{'Authorization':`Bearer ${token}`}})
+      .then(r=>r.json()).then(d=>{ if(d.success) setStatus(d.data); })
+      .catch(()=>{});
+  },[token]);
+
+  const copy=(text)=>{
+    navigator.clipboard.writeText(text).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+
+  const testWebhook=async()=>{
+    setTesting(true);setTestResult(null);
+    try{
+      // Simula um pedido do Multipedidos
+      const payload={
+        customer:{ name:'Cliente Teste', phone:'5547999999999' },
+        order:{ id:'TEST-001', total:45.90, items:[{name:'Pizza Margherita',quantity:1,price:45.90}] }
+      };
+      const r=await fetch(`${API}/api/multipedidos/webhook`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+      const d=await r.json();
+      setTestResult({ok:r.ok,msg:d.message});
+      // Recarrega status
+      setTimeout(()=>{
+        fetch(`${API}/api/multipedidos/status`,{headers:{'Authorization':`Bearer ${token}`}})
+          .then(r=>r.json()).then(d=>{ if(d.success) setStatus(d.data); });
+      },800);
+    }catch(e){setTestResult({ok:false,msg:e.message});}
+    setTesting(false);
+  };
+
+  const webhookUrl=status?.webhookUrl||`${API}/api/multipedidos/webhook`;
+
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <h1 style={{fontSize:22,fontWeight:700,color:C.tx,marginBottom:4}}>Integrações</h1>
+    <p style={{fontSize:13,color:C.mt,marginBottom:22}}>Conecte o ZapCloud ao seu cardápio digital para importar clientes automaticamente</p>
+
+    {/* ── Card Multipedidos ── */}
+    <div style={{background:'#fff',borderRadius:20,border:`1.5px solid ${C.br}`,overflow:'hidden',marginBottom:14}}>
+      {/* Header */}
+      <div style={{padding:'18px 22px',borderBottom:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:14}}>
+        <div style={{width:48,height:48,borderRadius:14,background:'linear-gradient(135deg,#FF6B35,#F7931E)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        </div>
+        <div style={{flex:1}}>
+          <p style={{fontWeight:700,fontSize:15,color:C.tx}}>Multipedidos</p>
+          <p style={{fontSize:12,color:C.mt}}>Cardápio digital · Importa clientes e pedidos automaticamente</p>
+        </div>
+        <span style={{fontSize:11,padding:'4px 12px',borderRadius:20,fontWeight:600,
+          background: status?.totalReceived>0 ? C.p+'18':'#F59E0B18',
+          color:      status?.totalReceived>0 ? C.p     :'#92400E'}}>
+          {status?.totalReceived>0 ? '● Ativo' : '○ Aguardando pedido'}
+        </span>
+      </div>
+
+      {/* Body */}
+      <div style={{padding:22}}>
+        {/* Métricas */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+          {[
+            {label:'Pedidos recebidos', value: status?.totalReceived??'—'},
+            {label:'Clientes no CRM',   value: status?.customersInCrm??'—'},
+            {label:'Último pedido',     value: status?.lastAt ? new Date(status.lastAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : '—'},
+          ].map(m=><div key={m.label} style={{background:C.bg,borderRadius:14,padding:14,textAlign:'center'}}>
+            <p style={{fontSize:22,fontWeight:700,color:C.p}}>{m.value}</p>
+            <p style={{fontSize:11,color:C.mt,marginTop:3}}>{m.label}</p>
+          </div>)}
+        </div>
+
+        {/* Passo a passo */}
+        <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:14,padding:16,marginBottom:18}}>
+          <p style={{fontWeight:600,fontSize:13,color:'#166534',marginBottom:10}}>📋 Como configurar no painel do Multipedidos:</p>
+          {[
+            'Acesse seu painel do Multipedidos',
+            'Vá em Configurações → Integrações → Webhook',
+            'Cole a URL abaixo no campo de Webhook URL',
+            'Salve e aguarde o próximo pedido chegar automaticamente',
+          ].map((s,i)=><div key={i} style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:8}}>
+            <span style={{width:20,height:20,borderRadius:'50%',background:C.p,color:'#fff',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{i+1}</span>
+            <p style={{fontSize:12,color:'#166534',lineHeight:1.5}}>{s}</p>
+          </div>)}
+        </div>
+
+        {/* URL do Webhook */}
+        <div style={{marginBottom:16}}>
+          <label style={{display:'block',fontSize:12,fontWeight:600,color:C.tx,marginBottom:6}}>🔗 URL do Webhook (copie e cole no Multipedidos)</label>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <div style={{flex:1,padding:'11px 14px',borderRadius:12,background:C.bg,border:`1px solid ${C.br}`,fontSize:12,color:C.tx,wordBreak:'break-all',fontFamily:'monospace'}}>
+              {webhookUrl}
+            </div>
+            <button onClick={()=>copy(webhookUrl)}
+              style={{padding:'11px 16px',borderRadius:12,border:'none',background:copied?C.dk:C.p,color:'#fff',fontWeight:600,fontSize:12,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>
+              {copied?'✓ Copiado!':'Copiar'}
+            </button>
+          </div>
+        </div>
+
+        {/* Info do restaurante */}
+        <div style={{display:'flex',gap:10,marginBottom:18}}>
+          <div style={{flex:1,padding:'10px 14px',borderRadius:12,background:C.bg,border:`1px solid ${C.br}`}}>
+            <p style={{fontSize:11,color:C.mt,marginBottom:2}}>ID do Restaurante</p>
+            <p style={{fontSize:14,fontWeight:700,color:C.tx,fontFamily:'monospace'}}>44</p>
+          </div>
+          <div style={{flex:1,padding:'10px 14px',borderRadius:12,background:C.bg,border:`1px solid ${C.br}`}}>
+            <p style={{fontSize:11,color:C.mt,marginBottom:2}}>Token configurado</p>
+            <p style={{fontSize:14,fontWeight:700,color:C.p}}>✓ Ativo</p>
+          </div>
+        </div>
+
+        {/* Botão de teste */}
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <button onClick={testWebhook} disabled={testing}
+            style={{display:'flex',alignItems:'center',gap:7,padding:'10px 18px',borderRadius:12,border:`1.5px solid ${C.p}`,background:'#fff',color:C.p,fontWeight:600,fontSize:13,cursor:'pointer'}}>
+            {testing?<><span className="spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>Testando...</>:<>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Simular pedido de teste
+            </>}
+          </button>
+          {testResult&&<span style={{fontSize:12,fontWeight:500,color:testResult.ok?C.p:'#DC2626'}}>
+            {testResult.ok?'✅':'❌'} {testResult.msg}
+          </span>}
+        </div>
+      </div>
+    </div>
+
+    {/* ── Placeholder futuras integrações ── */}
+    {['iFood','Aiqfome','Goomer'].map(name=>(
+      <div key={name} style={{background:'#fff',borderRadius:16,border:`1px dashed ${C.br}`,padding:'16px 22px',marginBottom:10,display:'flex',alignItems:'center',gap:14,opacity:.6}}>
+        <div style={{width:44,height:44,borderRadius:12,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </div>
+        <div style={{flex:1}}>
+          <p style={{fontWeight:600,fontSize:14,color:C.tx}}>{name}</p>
+          <p style={{fontSize:12,color:C.mt}}>Em breve</p>
+        </div>
+        <span style={{fontSize:11,padding:'3px 10px',borderRadius:20,background:C.bg,color:C.mt,fontWeight:500}}>Em breve</span>
+      </div>
+    ))}
+  </div>;
+}
+
+/* ══════════════════════════ SETTINGS ══════════════════════════ */
+function Settings({user}){
+  const [act,setAct]=useState('profile');
+  const [name,setName]=useState(user?.name||'');
+  const [saved,setSaved]=useState(false);
+  const [notifs,setNotifs]=useState({msgs:true,status:true,waba:false,rep:false});
+  const secs=[
+    {id:'profile', label:'Perfil',       desc:'Nome e e-mail'},
+    {id:'notifs',  label:'Notificações', desc:'Alertas'},
+    {id:'security',label:'Segurança',    desc:'Senha'},
+    {id:'billing', label:'Faturamento',  desc:'Plano'},
+  ];
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <h1 style={{fontSize:22,fontWeight:700,color:C.tx,marginBottom:4}}>Configurações</h1>
+    <p style={{fontSize:13,color:C.mt,marginBottom:20}}>Gerencie sua conta e preferências</p>
+    <div style={{display:'grid',gridTemplateColumns:'200px 1fr',gap:16}}>
+      <div style={{background:'#fff',borderRadius:18,border:`1px solid ${C.br}`,overflow:'hidden',height:'fit-content'}}>
+        {secs.map((s,i)=><button key={s.id} onClick={()=>setAct(s.id)}
+          style={{width:'100%',display:'flex',alignItems:'center',gap:12,padding:'13px 16px',border:'none',borderBottom:i<secs.length-1?`1px solid ${C.br}`:'none',background:act===s.id?C.p+'10':'#fff',textAlign:'left',cursor:'pointer'}}>
+          <div style={{width:32,height:32,borderRadius:8,background:act===s.id?C.p:C.bg,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={act===s.id?'#fff':C.mt} strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+          </div>
+          <div style={{flex:1}}><p style={{fontSize:13,fontWeight:500,color:C.tx}}>{s.label}</p><p style={{fontSize:11,color:C.mt}}>{s.desc}</p></div>
+        </button>)}
+      </div>
+      <div style={{background:'#fff',borderRadius:18,border:`1px solid ${C.br}`,padding:22}}>
+        {act==='profile'&&<>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:16}}>Perfil da conta</h3>
+          <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:18,padding:14,background:C.bg,borderRadius:14}}>
+            <div style={{width:54,height:54,borderRadius:'50%',background:C.p,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:19,flexShrink:0}}>
+              {user?.name?.split(' ').map(n=>n[0]).slice(0,2).join('')||'ZC'}
+            </div>
+            <div><p style={{fontWeight:600,color:C.tx}}>{user?.name}</p><p style={{fontSize:13,color:C.mt}}>{user?.email}</p></div>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{display:'block',fontSize:13,fontWeight:500,color:C.tx,marginBottom:5}}>Nome</label>
+            <input value={name} onChange={e=>setName(e.target.value)} style={{width:'100%',padding:'11px 14px',borderRadius:12,border:`1.5px solid ${C.br}`,fontSize:13,color:C.tx}}/>
+          </div>
+          <div style={{marginBottom:18}}>
+            <label style={{display:'block',fontSize:13,fontWeight:500,color:C.tx,marginBottom:5}}>E-mail</label>
+            <input value={user?.email||''} readOnly style={{width:'100%',padding:'11px 14px',borderRadius:12,border:`1.5px solid ${C.br}`,fontSize:13,color:C.mt,background:C.bg}}/>
+          </div>
+          <button onClick={()=>{setSaved(true);setTimeout(()=>setSaved(false),2000);}}
+            style={{display:'flex',alignItems:'center',gap:8,padding:'10px 20px',borderRadius:12,border:'none',background:saved?C.dk:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            {saved?'Salvo!':'Salvar alterações'}
+          </button>
+        </>}
+        {act==='notifs'&&<>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:16}}>Notificações</h3>
+          {[['msgs','Novas mensagens recebidas'],['status','Atualizações de status'],['waba','Alertas de conta WABA'],['rep','Relatórios semanais']].map(([k,l])=>(
+            <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'13px 0',borderBottom:`1px solid ${C.br}`}}>
+              <span style={{fontSize:13,color:C.tx}}>{l}</span>
+              <button onClick={()=>setNotifs(p=>({...p,[k]:!p[k]}))}
+                style={{width:40,height:22,borderRadius:99,border:'none',background:notifs[k]?C.p:'#E9EDEF',position:'relative'}}>
+                <span style={{position:'absolute',top:3,width:16,height:16,borderRadius:'50%',background:'#fff',boxShadow:'0 1px 3px rgba(0,0,0,.2)',transition:'left .2s',left:notifs[k]?'21px':'3px'}}/>
+              </button>
+            </div>
+          ))}
+        </>}
+        {(act==='security'||act==='billing')&&(
+          <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'50px 0',textAlign:'center'}}>
+            <div style={{width:52,height:52,borderRadius:16,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:12}}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <p style={{fontWeight:500,color:C.tx,marginBottom:4}}>{secs.find(s=>s.id===act)?.label}</p>
+            <p style={{fontSize:13,color:C.mt}}>Em breve disponível.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ CRM ══════════════════════════ */
+function CRM({token,wabaId}){
+  const [customers,setCustomers]=useState([]);
+  const [metrics,setMetrics]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [search,setSearch]=useState('');
+  const [filter,setFilter]=useState({daysInactive:'',minOrders:'',minTicket:''});
+  const [showImport,setShowImport]=useState(false);
+  const [importText,setImportText]=useState('');
+  const [importing,setImporting]=useState(false);
+  const [page,setPage]=useState(1);
+  const [totalPages,setTotalPages]=useState(1);
+  const [totalCustomers,setTotalCustomers]=useState(0);
+  const [fromDate,setFromDate]=useState('');
+  const [toDate,setToDate]=useState('');
+
+  const load=async(pg, ov)=>{
+    if(!token||!wabaId)return;
+    const curPage=pg||page;
+    const s=ov&&ov.search!==undefined?ov.search:search;
+    const f=ov&&ov.filter!==undefined?ov.filter:filter;
+    const fd=ov&&ov.fromDate!==undefined?ov.fromDate:fromDate;
+    const td=ov&&ov.toDate!==undefined?ov.toDate:toDate;
+    setLoading(true);
+    try{
+      const params=new URLSearchParams();
+      if(s) params.set('search',s);
+      if(f.daysInactive) params.set('daysInactive',f.daysInactive);
+      if(f.minOrders) params.set('minOrders',f.minOrders);
+      if(f.minTicket) params.set('minTicket',f.minTicket);
+      if(fd) params.set('fromDate',fd);
+      if(td) params.set('toDate',td);
+      params.set('page',curPage);
+      params.set('limit','50');
+      const [cRes,mRes]=await Promise.all([
+        fetch(`${API}/api/crm/${wabaId}/customers?${params}`,{headers:{Authorization:`Bearer ${token}`}}),
+        fetch(`${API}/api/crm/${wabaId}/metrics`,{headers:{Authorization:`Bearer ${token}`}}),
+      ]);
+      const cData=await cRes.json();
+      const mData=await mRes.json();
+      if(cData.success){
+        setCustomers(cData.data.customers);
+        setTotalPages(cData.data.pages||1);
+        setTotalCustomers(cData.data.total||0);
+      }
+      if(mData.success) setMetrics(mData.data);
+    }catch(e){console.error(e);}
+    setLoading(false);
+  };
+
+  const doFilter=()=>{ setPage(1); load(1); };
+  const clearFilter=()=>{ const ef={daysInactive:'',minOrders:'',minTicket:''};setFilter(ef);setSearch('');setFromDate('');setToDate('');setPage(1);load(1,{search:'',filter:ef,fromDate:'',toDate:''}); };
+  const goPage=(p)=>{ setPage(p); load(p); };
+
+  useEffect(()=>{load();},[token,wabaId]);
+
+  const doImport=async()=>{
+    try{
+      const lines=importText.trim().split('\n').filter(Boolean);
+      const customers=lines.map(l=>{
+        const [phone,name,totalOrders,totalSpent,lastOrderAt,favoriteItem]=l.split(';');
+        return{phone:phone?.trim(),name:name?.trim(),totalOrders:parseInt(totalOrders)||0,
+          totalSpent:parseFloat(totalSpent)||0,lastOrderAt:lastOrderAt?.trim()||null,
+          favoriteItems:favoriteItem?[{name:favoriteItem.trim()}]:[]};
+      }).filter(c=>c.phone);
+      setImporting(true);
+      const r=await fetch(`${API}/api/crm/${wabaId}/customers/import`,{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({customers,source:'import'})});
+      const d=await r.json();
+      if(d.success){alert(`✅ ${d.data.imported} importados, ${d.data.updated} atualizados!`);setShowImport(false);setImportText('');load();}
+      else alert('❌ Erro: '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+    setImporting(false);
+  };
+
+  const seg=[
+    {label:'Todos',val:''},
+    {label:'Inativos 7+ dias',val:'7'},
+    {label:'Inativos 15+ dias',val:'15'},
+    {label:'Inativos 30+ dias',val:'30'},
+  ];
+  const grupos=[
+    {label:'Todos os grupos',val:''},
+    {label:'Comprou 10x+',val:'comprou-10x'},
+    {label:'Comprou 20x+',val:'comprou-20x'},
+    {label:'Comprou 30x+',val:'comprou-30x'},
+    {label:'Comprou 40x+',val:'comprou-40x'},
+    {label:'Comprou 50x+',val:'comprou-50x'},
+    {label:'Comprou 60x+',val:'comprou-60x'},
+    {label:'Comprou 70x+',val:'comprou-70x'},
+    {label:'Comprou 80x+',val:'comprou-80x'},
+    {label:'Comprou 90x+',val:'comprou-90x'},
+    {label:'Comprou 100x+',val:'comprou-100x'},
+  ];
+
+  const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff'};
+
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>CRM de Clientes</h1>
+        <p style={{fontSize:13,color:C.mt,marginTop:2}}>{metrics?.total||0} clientes cadastrados</p></div>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={()=>setShowImport(true)} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 16px',borderRadius:12,border:`1px solid ${C.br}`,background:'#fff',color:C.tx,fontWeight:500,fontSize:13}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.tx} strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Importar
+        </button>
+      </div>
+    </div>
+
+    {/* Métricas */}
+    {metrics&&<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+      {[
+        {label:'Total de clientes',val:metrics.total,col:'#25D366'},
+        {label:'Ativos (7 dias)',val:metrics.active7,col:'#128C7E'},
+        {label:'Inativos (7+ dias)',val:metrics.inactive7,col:'#ECB22E'},
+        {label:'Inativos (30+ dias)',val:metrics.inactive30,col:'#FF5252'},
+      ].map(m=><div key={m.label} style={{background:'#fff',borderRadius:16,padding:18,border:`1px solid ${C.br}`}}>
+        <div style={{width:36,height:36,borderRadius:10,background:m.col+'18',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:10}}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={m.col} strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
+        </div>
+        <div style={{fontSize:24,fontWeight:800,color:C.tx}}>{m.val}</div>
+        <div style={{fontSize:12,color:C.mt,marginTop:2}}>{m.label}</div>
+      </div>)}
+    </div>}
+
+    {/* Filtros */}
+    <div style={{background:'#fff',borderRadius:16,padding:16,border:`1px solid ${C.br}`,marginBottom:16,display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}}>
+      <div style={{flex:2,minWidth:200}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Buscar</label>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff'}}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doFilter()} placeholder="Nome ou telefone..." style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
+        </div>
+      </div>
+      <div style={{flex:1,minWidth:140}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Inatividade</label>
+        <select value={filter.daysInactive} onChange={e=>setFilter(p=>({...p,daysInactive:e.target.value}))} style={inp2}>
+          {seg.map(s=><option key={s.val} value={s.val}>{s.label}</option>)}
+        </select>
+      </div>
+      <div style={{flex:1,minWidth:120}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Mín. pedidos</label>
+        <input type="number" value={filter.minOrders} onChange={e=>setFilter(p=>({...p,minOrders:e.target.value}))} placeholder="Ex: 3" style={inp2}/>
+      </div>
+      <div style={{flex:1,minWidth:120}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Ticket mín. (R$)</label>
+        <input type="number" value={filter.minTicket} onChange={e=>setFilter(p=>({...p,minTicket:e.target.value}))} placeholder="Ex: 50" style={inp2}/>
+      </div>
+      <div style={{flex:1,minWidth:130}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>📅 De</label>
+        <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={inp2}/>
+      </div>
+      <div style={{flex:1,minWidth:130}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>📅 Até</label>
+        <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={inp2}/>
+      </div>
+      <div style={{display:'flex',gap:6,alignItems:'flex-end'}}>
+        <button onClick={doFilter} style={{padding:'9px 20px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,height:38}}>Filtrar</button>
+        {(filter.daysInactive||filter.minOrders||filter.minTicket||search||fromDate||toDate)&&
+          <button onClick={clearFilter} style={{padding:'9px 14px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',color:C.mt,fontWeight:500,fontSize:13,height:38}}>✕</button>}
+      </div>
+    </div>
+
+    {/* Lista de clientes */}
+    <div style={{background:'#fff',borderRadius:16,border:`1px solid ${C.br}`,overflow:'hidden'}}>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.2fr 40px',gap:0,padding:'10px 16px',borderBottom:`1px solid ${C.br}`,background:C.bg}}>
+        {['Cliente','Telefone','Pedidos','Gasto Total','Ticket Médio','Último Pedido',''].map(h=>(
+          <span key={h} style={{fontSize:11,fontWeight:600,color:C.mt,textTransform:'uppercase'}}>{h}</span>
+        ))}
+      </div>
+      {loading?<div style={{padding:40,textAlign:'center',color:C.mt}}>Carregando...</div>:
+       customers.length===0?<div style={{padding:40,textAlign:'center',color:C.mt}}>Nenhum cliente encontrado.</div>:
+       customers.map((c,i)=>{
+        const days=c.daysSinceOrder||0;
+        const dayCol=days>30?'#FF5252':days>7?'#ECB22E':C.p;
+        const isReal=c.source==='multipedidos';
+        const doDelete=async()=>{
+          if(!confirm(`Excluir ${c.name||c.phone}?`))return;
+          await fetch(`${API}/api/crm/${wabaId}/customers/${c.id}`,{method:'DELETE',headers:{Authorization:`Bearer ${token}`}});
+          load(page);
+        };
+        return <div key={c.id} style={{display:'grid',gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.2fr 40px',gap:0,padding:'12px 16px',borderBottom:i<customers.length-1?`1px solid ${C.br}`:'none',alignItems:'center'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <Av name={c.name||c.phone} sz={34}/>
+            <div>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <p style={{fontSize:13,fontWeight:500,color:C.tx}}>{c.name||'Sem nome'}</p>
+                {isReal&&<span style={{fontSize:10,background:'#25D36618',color:'#128C7E',padding:'1px 6px',borderRadius:20,fontWeight:600}}>MP</span>}
+              </div>
+              {c.favoriteItems?.length>0&&<p style={{fontSize:11,color:C.mt}}>{typeof c.favoriteItems[0]==='object'?c.favoriteItems[0].name:c.favoriteItems[0]}</p>}
+            </div>
+          </div>
+          <span style={{fontSize:13,color:C.mt}}>{c.phone}</span>
+          <span style={{fontSize:13,fontWeight:600,color:C.tx}}>{c.totalOrders}</span>
+          <span style={{fontSize:13,color:C.tx}}>R$ {(c.totalSpent||0).toFixed(2)}</span>
+          <span style={{fontSize:13,color:C.tx}}>R$ {(c.averageTicket||0).toFixed(2)}</span>
+          <span style={{fontSize:12,fontWeight:500,color:dayCol}}>{days===0?'Hoje':days===1?'Ontem':`${days} dias atrás`}</span>
+          <button onClick={doDelete} title="Excluir" style={{width:28,height:28,borderRadius:8,border:`1px solid ${C.br}`,background:'#fff',color:'#FF5252',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>×</button>
+        </div>;
+      })}
+    </div>
+
+    {/* Paginação */}
+    {totalPages>1&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,marginTop:16}}>
+      <button onClick={()=>goPage(page-1)} disabled={page<=1} style={{padding:'8px 18px',borderRadius:10,border:`1px solid ${C.br}`,background:page<=1?C.bg:'#fff',color:page<=1?C.mt:C.tx,fontWeight:500,fontSize:13,cursor:page<=1?'default':'pointer'}}>
+        ← Anterior
+      </button>
+      <span style={{fontSize:13,color:C.mt}}>Página {page} de {totalPages} <span style={{color:C.mt,fontSize:12}}>({totalCustomers} clientes)</span></span>
+      <button onClick={()=>goPage(page+1)} disabled={page>=totalPages} style={{padding:'8px 18px',borderRadius:10,border:`1px solid ${C.br}`,background:page>=totalPages?C.bg:'#fff',color:page>=totalPages?C.mt:C.tx,fontWeight:500,fontSize:13,cursor:page>=totalPages?'default':'pointer'}}>
+        Próxima →
+      </button>
+    </div>}
+
+    {/* Modal de importação */}
+    {showImport&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
+      <div style={{background:'#fff',borderRadius:20,padding:28,width:560,maxWidth:'95vw'}}>
+        <h3 style={{fontWeight:700,color:C.tx,marginBottom:6}}>Importar Clientes</h3>
+        <p style={{fontSize:13,color:C.mt,marginBottom:14}}>Cole os dados no formato: <code style={{background:C.bg,padding:'2px 6px',borderRadius:6}}>telefone;nome;pedidos;gasto;ultimo_pedido;item_favorito</code></p>
+        <p style={{fontSize:12,color:C.mt,marginBottom:10}}>Exemplo: <code style={{background:C.bg,padding:'2px 6px',borderRadius:6}}>5547999990001;João Silva;12;480.00;2024-01-15;Pizza de Frango</code></p>
+        <textarea value={importText} onChange={e=>setImportText(e.target.value)} rows={8}
+          placeholder={'5547999990001;João Silva;12;480.00;2024-01-15;Pizza de Frango\n5547999990002;Maria Santos;5;200.00;2024-01-10;Hamburguer Smash'}
+          style={{width:'100%',padding:12,borderRadius:12,border:`1.5px solid ${C.br}`,fontSize:12,fontFamily:'monospace',resize:'vertical',outline:'none'}}/>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:14}}>
+          <button onClick={()=>{setShowImport(false);setImportText('');}} style={{padding:'9px 20px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',color:C.tx,fontWeight:500,fontSize:13}}>Cancelar</button>
+          <button onClick={doImport} disabled={importing||!importText.trim()} style={{padding:'9px 20px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
+            {importing?'Importando...':'Importar'}
+          </button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+/* ══════════════════════════ CAMPANHAS ══════════════════════════ */
+function Campaigns({token,wabaId}){
+  const [campaigns,setCampaigns]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [view,setView]=useState('list'); // list | create | detail
+  const [selected,setSelected]=useState(null);
+  const [form,setForm]=useState({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',tag:''}});
+  const [preview,setPreview]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const [executing,setExecuting]=useState(false);
+
+  const load=async()=>{
+    if(!token||!wabaId)return;
+    setLoading(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) setCampaigns(d.data);
+    }catch(e){}
+    setLoading(false);
+  };
+
+  useEffect(()=>{load();},[token,wabaId]);
+
+  const doPreview=async(tagOverride)=>{
+    try{
+      const sf={};
+      const tag=tagOverride!==undefined?tagOverride:form.segmentFilter.tag;
+      if(form.segmentFilter.daysInactive) sf.daysInactive=form.segmentFilter.daysInactive;
+      if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
+      if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
+      if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
+      if(tag) sf.tag=tag;
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/preview`,{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({segmentFilter:sf})});
+      const d=await r.json();
+      if(d.success) setPreview(d.data);
+    }catch(e){}
+  };
+
+  const saveCampaign=async()=>{
+    if(!form.name||!form.message){alert('Preencha nome e mensagem!');return;}
+    setSaving(true);
+    try{
+      const sf={};
+      if(form.segmentFilter.daysInactive) sf.daysInactive=form.segmentFilter.daysInactive;
+      if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
+      if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
+      if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
+      if(form.segmentFilter.tag) sf.tag=form.segmentFilter.tag;
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns`,{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({name:form.name,message:form.message,segmentFilter:sf})});
+      const d=await r.json();
+      if(d.success){load();setView('list');setForm({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',tag:''}});setPreview(null);}
+      else alert('Erro: '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+    setSaving(false);
+  };
+
+  const executeCampaign=async(id)=>{
+    if(!confirm('Confirma o disparo da campanha? As mensagens serão enviadas agora.'))return;
+    setExecuting(id);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/execute`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success){alert('✅ '+d.message);load();}
+      else alert('❌ Erro: '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+    setExecuting(null);
+  };
+
+  const statusBadge=(s)=>{
+    const map={DRAFT:['Rascunho','#667781','#f0f2f5'],RUNNING:['Disparando','#128C7E','#25D36618'],
+      COMPLETED:['Concluída','#25D366','#25D36618'],FAILED:['Falhou','#FF5252','#FF525218'],PAUSED:['Pausada','#ECB22E','#ECB22E18']};
+    const [label,col,bg]=map[s]||['–','#667781','#f0f2f5'];
+    return <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,background:bg,color:col}}>{label}</span>;
+  };
+
+  const VARS=['{{nome}}','{{produto_favorito}}','{{dias_sem_comprar}}','{{total_pedidos}}','{{ticket_medio}}'];
+  const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
+
+  if(view==='create') return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <button onClick={()=>{setView('list');setPreview(null);}} style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.tx} strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div><h1 style={{fontSize:20,fontWeight:700,color:C.tx}}>Nova Campanha</h1><p style={{fontSize:13,color:C.mt}}>Configure e dispare mensagens para sua base</p></div>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 380px',gap:16}}>
+      {/* Formulário */}
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>📋 Informações</h3>
+          <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:5}}>Nome da campanha</label>
+          <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Ex: Clientes inativos - Abril" style={{...inp2,marginBottom:14}}/>
+          <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:5}}>Mensagem</label>
+          <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:8}}>
+            {VARS.map(v=><button key={v} onClick={()=>setForm(p=>({...p,message:p.message+v}))}
+              style={{fontSize:11,padding:'3px 8px',borderRadius:20,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,cursor:'pointer'}}>{v}</button>)}
+          </div>
+          <textarea value={form.message} onChange={e=>setForm(p=>({...p,message:e.target.value}))} rows={5}
+            placeholder="Olá {{nome}}! 🍕 Sentimos sua falta... Faz {{dias_sem_comprar}} dias desde seu último pedido. Que tal um desconto especial hoje?"
+            style={{...inp2,resize:'vertical'}}/>
+          <p style={{fontSize:11,color:C.mt,marginTop:6}}>Use as variáveis acima para personalizar cada mensagem automaticamente.</p>
+        </div>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>🎯 Segmentação</h3>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div style={{gridColumn:'1 / -1'}}>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>🏷️ Grupo de compras</label>
+              <select value={form.segmentFilter.tag} onChange={e=>{const v=e.target.value;setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:v}}));doPreview(v);}} style={inp2}>
+                <option value="">Todos os clientes</option>
+                <option value="comprou-10x">Comprou 10x+</option>
+                <option value="comprou-20x">Comprou 20x+</option>
+                <option value="comprou-30x">Comprou 30x+</option>
+                <option value="comprou-40x">Comprou 40x+</option>
+                <option value="comprou-50x">Comprou 50x+</option>
+                <option value="comprou-60x">Comprou 60x+</option>
+                <option value="comprou-70x">Comprou 70x+</option>
+                <option value="comprou-80x">Comprou 80x+</option>
+                <option value="comprou-90x">Comprou 90x+</option>
+                <option value="comprou-100x">Comprou 100x+</option>
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Dias sem comprar (mín.)</label>
+              <input type="number" value={form.segmentFilter.daysInactive} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,daysInactive:e.target.value}}))} placeholder="Ex: 7" style={inp2}/>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Pedidos mínimos</label>
+              <input type="number" value={form.segmentFilter.minOrders} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minOrders:e.target.value}}))} placeholder="Ex: 2" style={inp2}/>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Pedidos máximos</label>
+              <input type="number" value={form.segmentFilter.maxOrders} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,maxOrders:e.target.value}}))} placeholder="Ex: 10" style={inp2}/>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Ticket médio mín. (R$)</label>
+              <input type="number" value={form.segmentFilter.minTicket} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minTicket:e.target.value}}))} placeholder="Ex: 50" style={inp2}/>
+            </div>
+          </div>
+          <button onClick={doPreview} style={{marginTop:14,padding:'9px 20px',borderRadius:10,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,fontWeight:600,fontSize:13}}>
+            👁 Calcular alcance
+          </button>
+        </div>
+      </div>
+      {/* Preview */}
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        {preview&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`2px solid ${C.p}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>📊 Alcance</h3>
+          <div style={{fontSize:36,fontWeight:800,color:C.p,marginBottom:4}}>{preview.count}</div>
+          <p style={{fontSize:13,color:C.mt,marginBottom:14}}>clientes serão impactados</p>
+          {preview.sample?.length>0&&<><p style={{fontSize:12,fontWeight:600,color:C.mt,marginBottom:8}}>Exemplos:</p>
+          {preview.sample.map(c=><div key={c.id} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+            <Av name={c.name||c.phone} sz={28}/><div>
+              <p style={{fontSize:12,fontWeight:500,color:C.tx}}>{c.name||'Sem nome'}</p>
+              <p style={{fontSize:11,color:C.mt}}>{c.daysSinceOrder} dias sem comprar</p>
+            </div>
+          </div>)}</>}
+        </div>}
+        {form.message&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>💬 Preview da mensagem</h3>
+          <div style={{background:C.bg,borderRadius:12,padding:12}}>
+            <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:'8px 12px',maxWidth:'85%',marginLeft:'auto'}}>
+              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{form.message.replace(/\{\{nome\}\}/g,'João').replace(/\{\{produto_favorito\}\}/g,'Pizza de Frango').replace(/\{\{dias_sem_comprar\}\}/g,'8').replace(/\{\{total_pedidos\}\}/g,'12').replace(/\{\{ticket_medio\}\}/g,'R$ 45.00')}</p>
+              <p style={{fontSize:10,color:C.mt,textAlign:'right',marginTop:4}}>Pré-visualização</p>
+            </div>
+          </div>
+        </div>}
+        <button onClick={saveCampaign} disabled={saving} style={{padding:'14px',borderRadius:14,border:'none',background:C.p,color:'#fff',fontWeight:700,fontSize:14,boxShadow:'0 4px 14px rgba(37,211,102,.3)'}}>
+          {saving?'Salvando...':'💾 Salvar campanha'}
+        </button>
+      </div>
+    </div>
+  </div>;
+
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>Campanhas</h1><p style={{fontSize:13,color:C.mt,marginTop:2}}>Crie e dispare mensagens para sua base</p></div>
+      <button onClick={()=>setView('create')} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Nova campanha
+      </button>
+    </div>
+    {loading?<div style={{textAlign:'center',padding:60,color:C.mt}}>Carregando...</div>:
+     campaigns.length===0?<div style={{background:'#fff',borderRadius:18,padding:60,textAlign:'center',border:`1px solid ${C.br}`}}>
+       <div style={{width:60,height:60,borderRadius:18,background:C.p+'15',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+       </div>
+       <h3 style={{fontWeight:700,color:C.tx,marginBottom:6}}>Nenhuma campanha ainda</h3>
+       <p style={{fontSize:13,color:C.mt,marginBottom:20}}>Crie sua primeira campanha e comece a recuperar clientes!</p>
+       <button onClick={()=>setView('create')} style={{padding:'10px 24px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>Criar campanha</button>
+     </div>:
+     <div style={{display:'flex',flexDirection:'column',gap:12}}>
+       {campaigns.map(c=><div key={c.id} style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:16}}>
+         <div style={{width:44,height:44,borderRadius:12,background:C.p+'15',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+         </div>
+         <div style={{flex:1}}>
+           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+             <p style={{fontWeight:600,fontSize:14,color:C.tx}}>{c.name}</p>
+             {statusBadge(c.status)}
+           </div>
+           <p style={{fontSize:12,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',maxWidth:400}}>{c.message}</p>
+           <div style={{display:'flex',gap:16,marginTop:6}}>
+             <span style={{fontSize:12,color:C.mt}}>👥 {c.totalRecipients} destinatários</span>
+             {c.sentCount>0&&<span style={{fontSize:12,color:C.p}}>✅ {c.sentCount} enviados</span>}
+             {c.failedCount>0&&<span style={{fontSize:12,color:'#FF5252'}}>❌ {c.failedCount} falhas</span>}
+             <span style={{fontSize:12,color:C.mt}}>{new Date(c.createdAt).toLocaleDateString('pt-BR')}</span>
+           </div>
+         </div>
+         {(c.status==='DRAFT')&&<button onClick={()=>executeCampaign(c.id)} disabled={executing===c.id}
+           style={{padding:'9px 18px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,flexShrink:0}}>
+           {executing===c.id?'Disparando...':'🚀 Disparar'}
+         </button>}
+         {c.status==='COMPLETED'&&<div style={{textAlign:'center',flexShrink:0}}>
+           <div style={{fontSize:20,fontWeight:800,color:C.p}}>{c.totalRecipients>0?Math.round((c.sentCount/c.totalRecipients)*100):0}%</div>
+           <div style={{fontSize:11,color:C.mt}}>enviados</div>
+         </div>}
+       </div>)}
+     </div>}
+  </div>;
+}
+
+/* ══════════════════════════ LAYOUT ══════════════════════════ */
+const NAV=[
+  {id:'dashboard',    label:'Dashboard',           icon:"M18 20V10M12 20V4M6 20v-6"},
+  {id:'conversations',label:'Conversas',            icon:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"},
+  {id:'crm',          label:'CRM',                 icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
+  {id:'campaigns',    label:'Campanhas',            icon:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"},
+  {id:'contacts',     label:'Contatos',             icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
+  {id:'connect',      label:'Conectar WhatsApp',    icon:"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"},
+  {id:'integracoes',  label:'Integrações',          icon:"M4 6h16M4 10h16M4 14h16M4 18h16"},
+  {id:'settings',     label:'Configurações',        icon:"M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"},
+];
+function Layout({user,token,onLogout}){
+  const [page,setPage]=useState('dashboard');
+  const [wabaId,setWabaId]=useState(null);
+  const isCv=page==='conversations';
+  useEffect(()=>{
+    if(!token)return;
+    fetch(`${API}/api/auth/me`,{headers:{Authorization:`Bearer ${token}`}})
+      .then(r=>r.json()).then(d=>{const acc=d?.data?.wabaAccounts?.[0];if(acc)setWabaId(acc.id);}).catch(()=>{});
+  },[token]);
+  return <div style={{display:'flex',height:'100vh',overflow:'hidden',background:C.bg}}>
+    <aside style={{width:238,flexShrink:0,display:'flex',flexDirection:'column',background:'#fff',borderRight:`1px solid ${C.br}`}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'18px 20px',borderBottom:`1px solid ${C.br}`}}>
+        <div style={{width:36,height:36,borderRadius:10,background:C.p,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <span style={{fontWeight:800,fontSize:18,color:C.tx}}>ZapCloud</span>
+      </div>
+      <nav style={{flex:1,padding:10}}>
+        {NAV.map(n=><button key={n.id} onClick={()=>setPage(n.id)}
+          style={{width:'100%',display:'flex',alignItems:'center',gap:11,padding:'10px 12px',borderRadius:12,border:'none',marginBottom:2,fontWeight:500,fontSize:13,background:page===n.id?C.p+'18':'transparent',color:page===n.id?C.dkk:C.mt,textAlign:'left'}}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={page===n.id?C.dkk:C.mt} strokeWidth="2"><path d={n.icon}/></svg>
+          {n.label}
+        </button>)}
+      </nav>
+      <div style={{padding:'13px 16px',borderTop:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:10}}>
+        <Av name={user.name} sz={34}/>
+        <div style={{flex:1,minWidth:0}}>
+          <p style={{fontSize:13,fontWeight:600,color:C.tx,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{user.name}</p>
+          <p style={{fontSize:11,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{user.email}</p>
+        </div>
+        <button onClick={onLogout} title="Sair" style={{border:'none',background:'none',padding:4,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </aside>
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',background:'#fff',borderBottom:`1px solid ${C.br}`,boxShadow:'0 1px 4px rgba(0,0,0,.05)',flexShrink:0}}>
+        <span style={{fontWeight:600,color:C.tx,fontSize:15}}>{NAV.find(n=>n.id===page)?.label}</span>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <button style={{position:'relative',width:36,height:36,borderRadius:'50%',border:'none',background:'none',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span style={{position:'absolute',top:7,right:7,width:8,height:8,borderRadius:'50%',background:C.p}}/>
+          </button>
+          <Av name={user.name} sz={32}/>
+        </div>
+      </header>
+      <main style={{flex:1,minHeight:0,overflow:isCv?'hidden':'auto'}}>
+        {page==='dashboard'     &&<Dashboard onNavigate={setPage} token={token}/>}
+        {page==='conversations' &&<Conversations token={token}/>}
+        {page==='crm'           &&<CRM token={token} wabaId={wabaId}/>}
+        {page==='campaigns'     &&<Campaigns token={token} wabaId={wabaId}/>}
+        {page==='contacts'      &&<Contacts/>}
+        {page==='connect'       &&<Connect token={token}/>}
+        {page==='integracoes'   &&<Integracoes token={token}/>}
+        {page==='settings'      &&<Settings user={user}/>}
+      </main>
+    </div>
+  </div>;
+}
+
+/* ══════════════════════════ APP ══════════════════════════ */
+function App(){
+  const [user,setUser]=useState(null);
+  const [token,setToken]=useState(null);
+  const login=(u,t)=>{setUser(u);setToken(t);};
+  if(!user) return <Login onLogin={login}/>;
+  return <Layout user={user} token={token} onLogout={()=>{setUser(null);setToken(null);}}/>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

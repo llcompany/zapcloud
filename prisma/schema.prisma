@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// USUÁRIOS DA PLATAFORMA
+// ==========================================
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  password     String
+  role         Role     @default(USER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relacionamentos
+  wabaAccounts WabaAccount[]
+  messages     Message[]
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+// ==========================================
+// CONTAS WABA (WhatsApp Business Account)
+// Vinculadas via Embedded Signup
+// ==========================================
+model WabaAccount {
+  id              String   @id @default(uuid())
+  userId          String
+  wabaId          String   @unique
+  phoneNumberId   String   @unique
+  displayName     String
+  accessToken     String   // token de acesso permanente
+  webhookVerified Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relacionamentos
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts    Contact[]
+  messages    Message[]
+  templates   Template[]
+  crmCustomers CrmCustomer[]
+  campaigns   Campaign[]
+
+  @@map("waba_accounts")
+}
+
+// ==========================================
+// CONTATOS
+// ==========================================
+model Contact {
+  id            String   @id @default(uuid())
+  wabaAccountId String
+  phone         String
+  name          String?
+  email         String?
+  tags          String[]
+  isBlocked     Boolean  @default(false)
+  lastSeenAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relacionamentos
+  wabaAccount WabaAccount @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+  messages    Message[]
+
+  @@unique([wabaAccountId, phone])
+  @@map("contacts")
+}
+
+// ==========================================
+// MENSAGENS
+// ==========================================
+model Message {
+  id              String        @id @default(uuid())
+  wabaAccountId   String
+  contactId       String
+  userId          String?       // quem enviou (null se recebida)
+  waMessageId     String?       @unique // ID retornado pela Meta
+  direction       Direction
+  type            MessageType
+  status          MessageStatus @default(PENDING)
+  content         Json          // conteúdo flexível (texto, mídia, template, etc.)
+  errorMessage    String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relacionamentos
+  wabaAccount WabaAccount @relation(fields: [wabaAccountId], references: [id])
+  contact     Contact     @relation(fields: [contactId], references: [id])
+  user        User?       @relation(fields: [userId], references: [id])
+
+  @@map("messages")
+}
+
+enum Direction {
+  INBOUND   // recebida do cliente
+  OUTBOUND  // enviada pela plataforma
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  TEMPLATE
+  INTERACTIVE
+  REACTION
+  LOCATION
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ==========================================
+// TEMPLATES
+// ==========================================
+model Template {
+  id              String         @id @default(uuid())
+  wabaAccountId   String
+  metaTemplateId  String?
+  name            String
+  category        String
+  language        String         @default("pt_BR")
+  status          TemplateStatus @default(PENDING)
+  components      Json           // estrutura dos componentes Meta
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relacionamentos
+  wabaAccount WabaAccount @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([wabaAccountId, name])
+  @@map("templates")
+}
+
+enum TemplateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISABLED
+}
+
+// ==========================================
+// CRM - CLIENTES DO RESTAURANTE
+// ==========================================
+model CrmCustomer {
+  id              String    @id @default(uuid())
+  wabaAccountId   String
+  phone           String
+  name            String?
+  email           String?
+  totalOrders     Int       @default(0)
+  totalSpent      Float     @default(0)
+  averageTicket   Float     @default(0)
+  lastOrderAt     DateTime?
+  firstOrderAt    DateTime?
+  daysSinceOrder  Int       @default(0)
+  favoriteItems   Json      @default("[]")
+  tags            String[]
+  source          String    @default("manual") // manual, multipedidos, anotaai, etc.
+  externalId      String?   // ID no sistema de origem
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relacionamentos
+  wabaAccount         WabaAccount         @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+  campaignExecutions  CampaignExecution[]
+
+  @@unique([wabaAccountId, phone])
+  @@map("crm_customers")
+}
+
+// ==========================================
+// CAMPANHAS
+// ==========================================
+model Campaign {
+  id              String         @id @default(uuid())
+  wabaAccountId   String
+  name            String
+  message         String         // suporta variáveis: {{nome}}, {{produto_favorito}}, {{dias_sem_comprar}}
+  segmentFilter   Json           // filtros: { daysInactive, minOrders, maxOrders, minTicket, favoriteItem, tags }
+  status          CampaignStatus @default(DRAFT)
+  totalRecipients Int            @default(0)
+  sentCount       Int            @default(0)
+  deliveredCount  Int            @default(0)
+  failedCount     Int            @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relacionamentos
+  wabaAccount WabaAccount         @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+  executions  CampaignExecution[]
+
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  PAUSED
+  FAILED
+}
+
+// ==========================================
+// EXECUÇÃO DE CAMPANHAS (por cliente)
+// ==========================================
+model CampaignExecution {
+  id            String          @id @default(uuid())
+  campaignId    String
+  crmCustomerId String
+  status        ExecutionStatus @default(PENDING)
+  message       String          // mensagem final com variáveis substituídas
+  waMessageId   String?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  failedReason  String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relacionamentos
+  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  crmCustomer CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_executions")
+}
+
+enum ExecutionStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+}

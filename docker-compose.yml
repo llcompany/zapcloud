@@ -1,0 +1,59 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: zapcloud-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zapcloud
+      POSTGRES_PASSWORD: zapcloud123
+      POSTGRES_DB: zapcloud
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U zapcloud']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  api:
+    build: .
+    container_name: zapcloud-api
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://zapcloud:zapcloud123@db:5432/zapcloud?schema=public
+      JWT_SECRET: ${JWT_SECRET:-troque_essa_chave_em_producao_32chars}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-troque_essa_refresh_em_producao_32c}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
+      META_APP_ID: ${META_APP_ID}
+      META_APP_SECRET: ${META_APP_SECRET}
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN}
+      META_API_VERSION: ${META_API_VERSION:-v19.0}
+      META_REDIRECT_URI: ${META_REDIRECT_URI}
+      PORT: 3000
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+
+  # ── Adminer (UI para o banco) ──────────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: zapcloud-adminer
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

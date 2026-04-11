@@ -18,5 +18,4 @@ RUN npx prisma generate
 
 EXPOSE 3000
 
-# Na inicialização: roda as migrations com a URL real do Railway e inicia o servidor
-CMD ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
+CMD ["node", "src/server.js"]

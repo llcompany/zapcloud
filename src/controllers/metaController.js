@@ -1,7 +1,7 @@
 const axios = require('axios');
-const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+
+const prisma = require('../utils/prisma');
 
 const META_BASE_URL = process.env.META_BASE_URL || 'https://graph.facebook.com';
 const META_API_VERSION = process.env.META_API_VERSION || 'v19.0';

@@ -1,5 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+
+const prisma = require('../utils/prisma');
 
 // ─── Listar clientes com filtros de segmentação ───────────────────────────────
 const listCustomers = async (req, res) => {

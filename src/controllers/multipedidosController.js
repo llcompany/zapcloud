@@ -1,5 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+
+const prisma = require('../utils/prisma');
 
 // Contador de pedidos recebidos (em memória — só para status)
 let stats = { total: 0, lastAt: null, lastPayload: null };

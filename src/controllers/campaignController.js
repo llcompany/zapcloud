@@ -1,6 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+
 const axios = require('axios');
-const prisma = new PrismaClient();
+const prisma = require('../utils/prisma');
 
 // ─── Substituir variáveis na mensagem ────────────────────────────────────────
 function buildMessage(template, customer) {

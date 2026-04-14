@@ -1,5 +1,17 @@
 require('dotenv').config();
 
+// ─── DIAGNÓSTICO DE STARTUP ────────────────────────────────────────────────────
+console.log('\n========== STARTUP DIAGNOSTICS ==========');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
+console.log('DATABASE_URL defined:', !!process.env.DATABASE_URL);
+console.log('DATABASE_URL length:', (process.env.DATABASE_URL || '').length);
+const allKeys = Object.keys(process.env).sort();
+console.log('TOTAL ENV VARS:', allKeys.length);
+console.log('ALL KEYS:', allKeys.join(' | '));
+console.log('==========================================\n');
+// ─────────────────────────────────────────────────────────────────────────────
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

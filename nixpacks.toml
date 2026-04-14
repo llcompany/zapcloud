@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "openssl"]
+
+[phases.install]
+cmds = ["npm ci --only=production"]
+
+[phases.build]
+cmds = ["DATABASE_URL='postgresql://dummy:dummy@dummy:5432/dummy' npx prisma generate"]
+
+[start]
+cmd = "node src/server.js"

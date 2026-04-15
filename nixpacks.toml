@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "openssl"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = [
+  "node scripts/build-env.js",
+  "npx prisma generate"
+]
+
+[start]
+cmd = "node src/server.js"

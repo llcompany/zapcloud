@@ -1,3 +1,6 @@
+// Carrega variáveis capturadas durante o build do Railway (Runtime V2)
+require('dotenv').config({ path: '.env.build' });
+// Fallback para .env local em desenvolvimento
 require('dotenv').config();
 
 // ─── DIAGNÓSTICO DE STARTUP ────────────────────────────────────────────────────

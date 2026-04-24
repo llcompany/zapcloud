@@ -42,13 +42,13 @@ async function getMetrics(req, res) {
 
     // ── Ticket médio (somente Multipedidos) ─────────────────────
     const ticketAgg = await prisma.crmCustomer.aggregate({
-      where: baseWhere,
+      where: { ...baseWhere, lastOrderAt: { gte: d30 } }, // só clientes ativos 30 dias
       _avg:  { averageTicket: true },
-      _sum:  { totalSpent: true, totalOrders: true },
+      _sum:  { averageTicket: true, totalOrders: true },
     });
 
     const ticketMedio  = ticketAgg._avg.averageTicket || 0;
-    const totalGasto   = ticketAgg._sum.totalSpent    || 0;
+    const totalGasto   = ticketAgg._sum.averageTicket || 0; // soma dos últimos pedidos (não histórico)
     const totalPedidos = ticketAgg._sum.totalOrders   || 0;
 
     // ── Campanhas ────────────────────────────────────────────────
@@ -58,17 +58,20 @@ async function getMetrics(req, res) {
     ]);
 
     // ── Pedidos por dia — últimos 7 dias, somente Multipedidos ──
-    const clientesPorDia = await prisma.$queryRaw`
-      SELECT
-        DATE(last_order_at) as dia,
-        COUNT(*) as total
-      FROM crm_customers
-      WHERE waba_account_id = ${wabaId}
-        AND source = 'multipedidos'
-        AND last_order_at >= ${d7}
-      GROUP BY DATE(last_order_at)
-      ORDER BY dia ASC
-    `.catch(() => []);
+    const clientesRecentes = await prisma.crmCustomer.findMany({
+      where: { ...baseWhere, lastOrderAt: { gte: d7 } },
+      select: { lastOrderAt: true },
+    }).catch(() => []);
+
+    // Agrupa por data em JS (evita SQL raw com nomes de coluna)
+    const contagemPorDia = {};
+    clientesRecentes.forEach(c => {
+      if (c.lastOrderAt) {
+        const key = c.lastOrderAt.toISOString().split('T')[0];
+        contagemPorDia[key] = (contagemPorDia[key] || 0) + 1;
+      }
+    });
+    const clientesPorDia = Object.entries(contagemPorDia).map(([dia, total]) => ({ dia, total }));
 
     // Monta array dos últimos 7 dias (preenche vazios com 0)
     const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];

@@ -67,35 +67,36 @@ async function receiveOrder(req, res) {
       where: { wabaAccountId: wabaAccount.id, phone },
     });
 
+    let crmCustomer;
+
     if (existing) {
       // Atualiza dados do cliente existente
       const newTotal  = existing.totalOrders + 1;
       const newSpent  = parseFloat(existing.totalSpent) + order.total;
       const newTicket = newSpent / newTotal;
 
-      // Atualiza itens favoritos
       let favItems = existing.favoriteItems || [];
       if (order.items?.length) {
         favItems = mergeFavoriteItems(favItems, order.items);
       }
 
-      await prisma.crmCustomer.update({
+      crmCustomer = await prisma.crmCustomer.update({
         where: { id: existing.id },
         data: {
-          name:          customer.name || existing.name,
-          totalOrders:   newTotal,
-          totalSpent:    newSpent,
-          averageTicket: newTicket,
-          lastOrderAt:   new Date(),
+          name:           customer.name || existing.name,
+          totalOrders:    newTotal,
+          totalSpent:     newSpent,
+          averageTicket:  newTicket,
+          lastOrderAt:    new Date(),
           daysSinceOrder: 0,
-          favoriteItems: favItems,
-          source:        'multipedidos',
+          favoriteItems:  favItems,
+          source:         'multipedidos',
         },
       });
       console.log(`[Multipedidos] Cliente atualizado: ${phone} (pedido #${newTotal})`);
     } else {
       // Cria novo cliente
-      await prisma.crmCustomer.create({
+      crmCustomer = await prisma.crmCustomer.create({
         data: {
           wabaAccountId:  wabaAccount.id,
           phone,
@@ -113,6 +114,20 @@ async function receiveOrder(req, res) {
       });
       console.log(`[Multipedidos] Novo cliente criado: ${phone}`);
     }
+
+    // ── 6. Salva pedido individual no histórico ───────────────────
+    await prisma.customerOrder.create({
+      data: {
+        crmCustomerId: crmCustomer.id,
+        wabaAccountId: wabaAccount.id,
+        externalId:    String(order.id || ''),
+        total:         order.total,
+        items:         order.items || [],
+        source:        'multipedidos',
+        orderedAt:     new Date(),
+      },
+    });
+    console.log(`[Multipedidos] Pedido salvo no histórico: R$${order.total.toFixed(2)}`);
 
     res.json({ success: true, message: 'Pedido processado com sucesso.' });
   } catch (err) {

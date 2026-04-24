@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, param } = require('express-validator');
 const router = express.Router();
-const { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource } = require('../controllers/crmController');
+const { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource, getCustomerOrders } = require('../controllers/crmController');
 const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign } = require('../controllers/campaignController');
 const { authenticate } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
@@ -17,6 +17,7 @@ router.put('/:wabaAccountId/customers', [
 ], validate, upsertCustomer);
 router.delete('/:wabaAccountId/customers/bulk', deleteBySource);
 router.delete('/:wabaAccountId/customers/:customerId', deleteCustomer);
+router.get('/:wabaAccountId/customers/:customerId/orders', getCustomerOrders);
 router.post('/:wabaAccountId/customers/import', [
   param('wabaAccountId').isUUID(),
   body('customers').isArray().withMessage('Lista de clientes obrigatória.'),

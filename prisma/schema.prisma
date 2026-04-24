@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ==========================================
@@ -191,9 +192,29 @@ model CrmCustomer {
   // Relacionamentos
   wabaAccount         WabaAccount         @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
   campaignExecutions  CampaignExecution[]
+  orders              CustomerOrder[]
 
   @@unique([wabaAccountId, phone])
   @@map("crm_customers")
+}
+
+// ==========================================
+// HISTÓRICO DE PEDIDOS
+// ==========================================
+model CustomerOrder {
+  id            String      @id @default(uuid())
+  crmCustomerId String
+  wabaAccountId String
+  externalId    String?     // ID do pedido no Multipedidos
+  total         Float       @default(0)
+  items         Json        @default("[]") // [{ name, quantity, price }]
+  source        String      @default("multipedidos")
+  orderedAt     DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+
+  crmCustomer   CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_orders")
 }
 
 // ==========================================

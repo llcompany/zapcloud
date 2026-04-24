@@ -188,4 +188,18 @@ const deleteCustomer = async (req, res) => {
   }
 };
 
-module.exports = { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource };
+// ─── Histórico de pedidos do cliente ─────────────────────────────────────────
+const getCustomerOrders = async (req, res) => {
+  try {
+    const { wabaAccountId, customerId } = req.params;
+    const orders = await prisma.customerOrder.findMany({
+      where: { crmCustomerId: customerId, wabaAccountId },
+      orderBy: { orderedAt: 'desc' },
+    });
+    res.json({ success: true, data: orders });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource, getCustomerOrders };

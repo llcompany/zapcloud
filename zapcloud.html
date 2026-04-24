@@ -24,7 +24,7 @@ button{cursor:pointer;transition:all .15s}
 const {useState,useRef,useEffect}=React;
 
 const C={p:'#25D366',dk:'#128C7E',dkk:'#075E54',bbl:'#DCF8C6',bg:'#F0F2F5',tx:'#111B21',mt:'#667781',br:'#E9EDEF'};
-const API='https://zapcloud-production.up.railway.app';
+const API='https://zapcloud-production-a340.up.railway.app';
 
 /* ── Avatar ── */
 function Av({name,sz=40,online=false}){
@@ -911,6 +911,21 @@ function CRM({token,wabaId}){
   const [filter,setFilter]=useState({daysInactive:'',minOrders:'',minTicket:''});
   const [showImport,setShowImport]=useState(false);
   const [importText,setImportText]=useState('');
+  const [selectedCustomer,setSelectedCustomer]=useState(null);
+  const [orders,setOrders]=useState([]);
+  const [loadingOrders,setLoadingOrders]=useState(false);
+
+  const openHistory=async(c)=>{
+    setSelectedCustomer(c);
+    setOrders([]);
+    setLoadingOrders(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/customers/${c.id}/orders`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      setOrders(d.data||[]);
+    }catch(e){setOrders([]);}
+    setLoadingOrders(false);
+  };
   const [importing,setImporting]=useState(false);
   const [page,setPage]=useState(1);
   const [totalPages,setTotalPages]=useState(1);
@@ -1088,7 +1103,7 @@ function CRM({token,wabaId}){
             <Av name={c.name||c.phone} sz={34}/>
             <div>
               <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <p style={{fontSize:13,fontWeight:500,color:C.tx}}>{c.name||'Sem nome'}</p>
+                <p onClick={()=>openHistory(c)} style={{fontSize:13,fontWeight:500,color:C.p,cursor:'pointer',textDecoration:'underline'}}>{c.name||'Sem nome'}</p>
                 {isReal&&<span style={{fontSize:10,background:'#25D36618',color:'#128C7E',padding:'1px 6px',borderRadius:20,fontWeight:600}}>MP</span>}
               </div>
               {c.favoriteItems?.length>0&&<p style={{fontSize:11,color:C.mt}}>{typeof c.favoriteItems[0]==='object'?c.favoriteItems[0].name:c.favoriteItems[0]}</p>}
@@ -1113,6 +1128,60 @@ function CRM({token,wabaId}){
       <button onClick={()=>goPage(page+1)} disabled={page>=totalPages} style={{padding:'8px 18px',borderRadius:10,border:`1px solid ${C.br}`,background:page>=totalPages?C.bg:'#fff',color:page>=totalPages?C.mt:C.tx,fontWeight:500,fontSize:13,cursor:page>=totalPages?'default':'pointer'}}>
         Próxima →
       </button>
+    </div>}
+
+    {/* Modal de histórico de pedidos */}
+    {selectedCustomer&&<div onClick={()=>setSelectedCustomer(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:20,width:520,maxWidth:'95vw',maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>
+        {/* Header */}
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'18px 20px',borderBottom:`1px solid ${C.br}`}}>
+          <Av name={selectedCustomer.name||selectedCustomer.phone} sz={44}/>
+          <div style={{flex:1}}>
+            <p style={{fontWeight:700,color:C.tx,fontSize:15}}>{selectedCustomer.name||'Sem nome'}</p>
+            <p style={{fontSize:12,color:C.mt}}>{selectedCustomer.phone}</p>
+          </div>
+          <button onClick={()=>setSelectedCustomer(null)} style={{width:32,height:32,borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',fontSize:18,color:C.mt,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+        </div>
+        {/* Resumo */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,padding:'14px 20px',borderBottom:`1px solid ${C.br}`}}>
+          {[['Total Pedidos',selectedCustomer.totalOrders,C.tx],['Total Gasto','R$ '+(selectedCustomer.totalSpent||0).toFixed(2),C.p],['Ticket Médio','R$ '+(selectedCustomer.averageTicket||0).toFixed(2),C.tx]].map(([label,val,col])=>(
+            <div key={label} style={{background:C.bg,borderRadius:12,padding:'10px 12px',textAlign:'center'}}>
+              <p style={{fontSize:11,color:C.mt,marginBottom:3}}>{label}</p>
+              <p style={{fontWeight:700,color:col,fontSize:14}}>{val}</p>
+            </div>
+          ))}
+        </div>
+        {/* Lista de pedidos */}
+        <div style={{flex:1,overflowY:'auto',padding:'14px 20px'}}>
+          <p style={{fontWeight:600,fontSize:13,color:C.tx,marginBottom:10}}>🛍️ Histórico de Pedidos</p>
+          {loadingOrders
+            ?<div style={{textAlign:'center',padding:30,color:C.mt}}>Carregando...</div>
+            :orders.length===0
+              ?<div style={{textAlign:'center',padding:30,color:C.mt}}>
+                <p style={{fontSize:14}}>Nenhum pedido registrado ainda.</p>
+                <p style={{fontSize:12,marginTop:6,opacity:.7}}>Os próximos pedidos via Multipedidos aparecerão aqui.</p>
+              </div>
+              :orders.map((o,i)=>(
+                <div key={o.id} style={{border:`1px solid ${C.br}`,borderRadius:12,padding:'12px 14px',marginBottom:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                    <span style={{fontSize:12,color:C.mt}}>📅 {new Date(o.orderedAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                    <span style={{fontWeight:700,color:C.p,fontSize:14}}>R$ {(o.total||0).toFixed(2)}</span>
+                  </div>
+                  {(o.items||[]).length>0&&(
+                    <div style={{borderTop:`1px solid ${C.br}`,paddingTop:6,marginTop:4}}>
+                      {(o.items||[]).map((it,j)=>(
+                        <div key={j} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:C.tx,paddingBottom:3}}>
+                          <span>{it.quantity}x {it.name}</span>
+                          <span style={{color:C.mt}}>R$ {((it.price||0)*(it.quantity||1)).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+          }
+        </div>
+      </div>
     </div>}
 
     {/* Modal de importação */}

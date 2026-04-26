@@ -192,11 +192,17 @@ function extractOrder(body) {
 }
 
 function extractItems(order) {
-  const raw = order.items || order.itens || order.products || order.produtos || [];
+  const raw = order.items || order.itens || order.products || order.produtos || order.orderItems || order.lineItems || [];
+  if (raw.length > 0) {
+    console.log('[Multipedidos] Raw item (primeiro):', JSON.stringify(raw[0]));
+  }
   return raw.map(i => ({
-    name:     i.name || i.nome || i.product_name || i.produto || 'Item',
-    quantity: parseInt(i.quantity || i.quantidade || i.qty || 1),
-    price:    parseFloat(i.price || i.valor || i.preco || 0),
+    name:     i.name       || i.nome          || i.product_name  || i.productName  ||
+              i.produto    || i.title         || i.titulo        || i.description  ||
+              i.descricao  || i.item_name     || i.itemName      || i.label        ||
+              i.item       || i.product       || 'Item',
+    quantity: parseInt(i.quantity || i.quantidade || i.qty || i.amount || i.count || 1),
+    price:    parseFloat(i.price || i.valor || i.preco || i.unit_price || i.unitPrice || i.total_price || 0),
   }));
 }
 
@@ -217,10 +223,4 @@ function mergeFavoriteItems(existing, newItems) {
   const map = {};
   [...existing, ...newItems].forEach(item => {
     const key = (item.name || '').toLowerCase();
-    if (!map[key]) map[key] = { ...item, count: 0 };
-    map[key].count = (map[key].count || 0) + (item.quantity || 1);
-  });
-  return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 10);
-}
-
-module.exports = { receiveOrder, getStatus };
+    if (!map[key]) map[key] = { 

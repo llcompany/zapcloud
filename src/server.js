@@ -8,20 +8,19 @@ const morgan  = require('morgan');
 const path    = require('path');
 const rateLimit = require('express-rate-limit');
 
-const authRoutes        = require('./routes/auth');
-const whatsappRoutes    = require('./routes/whatsapp');
-const metaRoutes        = require('./routes/meta');
-const crmRoutes         = require('./routes/crm');
-const waBusinessRoutes  = require('./routes/waBusiness');
+const authRoutes         = require('./routes/auth');
+const whatsappRoutes     = require('./routes/whatsapp');
+const metaRoutes         = require('./routes/meta');
+const crmRoutes          = require('./routes/crm');
+const waBusinessRoutes   = require('./routes/waBusiness');
 const multipedidosRoutes = require('./routes/multipedidos');
-const dashboardRoutes   = require('./routes/dashboard');
+const dashboardRoutes    = require('./routes/dashboard');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 
-// Seguranca
 app.use(helmet());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
@@ -29,7 +28,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Rate limiting global
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 2000,
@@ -39,24 +37,20 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Rate limiting para auth
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: { success: false, message: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
 });
 
-// Body parsing
 app.use('/api/whatsapp/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Logs
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// Frontend (zapcloud.html) - acessivel em /
 app.get('/', (req, res) => {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
@@ -69,16 +63,14 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'zapcloud.html'));
 });
 
-// Rotas da API
-app.use('/api/auth',        authLimiter, authRoutes);
-app.use('/api/whatsapp',    whatsappRoutes);
-app.use('/api/meta',        metaRoutes);
-app.use('/api/crm',         crmRoutes);
-app.use('/api/wa-business', waBusinessRoutes);
+app.use('/api/auth',         authLimiter, authRoutes);
+app.use('/api/whatsapp',     whatsappRoutes);
+app.use('/api/meta',         metaRoutes);
+app.use('/api/crm',          crmRoutes);
+app.use('/api/wa-business',  waBusinessRoutes);
 app.use('/api/multipedidos', multipedidosRoutes);
-app.use('/api/dashboard',   dashboardRoutes);
+app.use('/api/dashboard',    dashboardRoutes);
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({
     success: true,
@@ -88,12 +80,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 404
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Rota nao encontrada.' });
 });
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error('[Error Handler]', err);
   res.status(err.status || 500).json({
@@ -102,7 +92,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Iniciar
 app.listen(PORT, () => {
   console.log('ZapFood API rodando na porta ' + PORT);
   console.log('Ambiente: ' + (process.env.NODE_ENV || 'development'));

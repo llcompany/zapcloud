@@ -1,44 +1,29 @@
-
 const prisma = require('../utils/prisma');
 
-// Contador de pedidos recebidos (em memória — só para status)
 let stats = { total: 0, lastAt: null, lastPayload: null };
 
-/**
- * POST /api/multipedidos/webhook
- *
- * Multipedidos chama esta rota a cada novo pedido.
- * Autenticamos pelo token configurado em MULTIPEDIDOS_TOKEN.
- * Extraímos dados do cliente e upsertamos no CRM.
- */
 async function receiveOrder(req, res) {
   try {
-    // ── 1. Verificar token ────────────────────────────────────────
     const expectedToken = process.env.MULTIPEDIDOS_TOKEN;
     if (expectedToken) {
-      // Token pode vir no header ou no body
       const receivedToken =
         req.headers['x-multipedidos-token'] ||
         req.headers['x-token'] ||
         req.headers['authorization']?.replace('Bearer ', '') ||
         req.body?.token ||
         req.query?.token;
-
       if (receivedToken !== expectedToken) {
-        console.warn('[Multipedidos] Token inválido recebido:', receivedToken?.slice(0, 12));
-        // Responde 200 mesmo assim para não bloquear (analisamos o payload)
+        console.warn('[Multipedidos] Token invalido recebido:', receivedToken?.slice(0, 12));
       }
     }
 
     const body = req.body;
     console.log('[Multipedidos] Webhook recebido:', JSON.stringify(body, null, 2));
 
-    // ── 2. Salva payload bruto para debug ─────────────────────────
     stats.total++;
     stats.lastAt      = new Date().toISOString();
     stats.lastPayload = body;
 
-    // ── 3. Extrai dados do cliente (tenta vários formatos) ────────
     const customer = extractCustomer(body);
     const order    = extractOrder(body);
 
@@ -47,22 +32,16 @@ async function receiveOrder(req, res) {
       return res.json({ success: true, message: 'Recebido, mas sem dados de cliente.' });
     }
 
-    // ── 4. Descobre a conta WABA do restaurante ───────────────────
-    // Usa o primeiro WabaAccount ativo (1 restaurante = 1 conta)
     const wabaAccount = await prisma.wabaAccount.findFirst({
       orderBy: { createdAt: 'asc' },
     });
 
     if (!wabaAccount) {
-      console.warn('[Multipedidos] Nenhuma WabaAccount encontrada — pedido recebido em modo teste.');
-      stats.total++;
-      stats.lastAt = new Date().toISOString();
-      return res.json({ success: true, message: 'Webhook funcionando! Configure uma conta WhatsApp para salvar clientes no CRM.' });
+      console.warn('[Multipedidos] Nenhuma WabaAccount encontrada.');
+      return res.json({ success: true, message: 'Webhook funcionando! Configure uma conta WhatsApp.' });
     }
 
-    // ── 5. Upsert no CRM ─────────────────────────────────────────
     const phone = normalizePhone(customer.phone);
-
     const existing = await prisma.crmCustomer.findFirst({
       where: { wabaAccountId: wabaAccount.id, phone },
     });
@@ -70,16 +49,13 @@ async function receiveOrder(req, res) {
     let crmCustomer;
 
     if (existing) {
-      // Atualiza dados do cliente existente
       const newTotal  = existing.totalOrders + 1;
       const newSpent  = parseFloat(existing.totalSpent) + order.total;
       const newTicket = newSpent / newTotal;
-
       let favItems = existing.favoriteItems || [];
       if (order.items?.length) {
         favItems = mergeFavoriteItems(favItems, order.items);
       }
-
       crmCustomer = await prisma.crmCustomer.update({
         where: { id: existing.id },
         data: {
@@ -93,9 +69,8 @@ async function receiveOrder(req, res) {
           source:         'multipedidos',
         },
       });
-      console.log(`[Multipedidos] Cliente atualizado: ${phone} (pedido #${newTotal})`);
+      console.log('[Multipedidos] Cliente atualizado: ' + phone + ' (pedido #' + newTotal + ')');
     } else {
-      // Cria novo cliente
       crmCustomer = await prisma.crmCustomer.create({
         data: {
           wabaAccountId:  wabaAccount.id,
@@ -112,10 +87,9 @@ async function receiveOrder(req, res) {
           externalId:     String(order.id || ''),
         },
       });
-      console.log(`[Multipedidos] Novo cliente criado: ${phone}`);
+      console.log('[Multipedidos] Novo cliente criado: ' + phone);
     }
 
-    // ── 6. Salva pedido individual no histórico ───────────────────
     await prisma.customerOrder.create({
       data: {
         crmCustomerId: crmCustomer.id,
@@ -127,7 +101,7 @@ async function receiveOrder(req, res) {
         orderedAt:     new Date(),
       },
     });
-    console.log(`[Multipedidos] Pedido salvo no histórico: R$${order.total.toFixed(2)}`);
+    console.log('[Multipedidos] Pedido salvo no historico: R$' + order.total.toFixed(2));
 
     res.json({ success: true, message: 'Pedido processado com sucesso.' });
   } catch (err) {
@@ -136,10 +110,6 @@ async function receiveOrder(req, res) {
   }
 }
 
-/**
- * GET /api/multipedidos/status
- * Retorna estatísticas da integração.
- */
 async function getStatus(req, res) {
   try {
     const totalCustomers = await prisma.crmCustomer.count({
@@ -148,7 +118,7 @@ async function getStatus(req, res) {
     res.json({
       success: true,
       data: {
-        webhookUrl:      `${process.env.PUBLIC_URL || 'http://localhost:3000'}/api/multipedidos/webhook`,
+        webhookUrl:      (process.env.PUBLIC_URL || 'http://localhost:3000') + '/api/multipedidos/webhook',
         totalReceived:   stats.total,
         lastAt:          stats.lastAt,
         lastPayload:     stats.lastPayload,
@@ -161,16 +131,8 @@ async function getStatus(req, res) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
-
-/**
- * Tenta extrair dados do cliente de vários formatos possíveis
- * (Multipedidos pode usar diferentes nomes de campo)
- */
 function extractCustomer(body) {
-  // Formato 1: body.customer / body.cliente
   const c = body.customer || body.cliente || body.client || {};
-  // Formato 2: campos direto no body
   return {
     phone: c.phone || c.telefone || c.celular || c.whatsapp ||
            body.phone || body.telefone || body.celular || body.customer_phone || '',
@@ -179,9 +141,6 @@ function extractCustomer(body) {
   };
 }
 
-/**
- * Tenta extrair dados do pedido de vários formatos possíveis
- */
 function extractOrder(body) {
   const o = body.order || body.pedido || body;
   return {
@@ -196,19 +155,18 @@ function extractItems(order) {
   if (raw.length > 0) {
     console.log('[Multipedidos] Raw item (primeiro):', JSON.stringify(raw[0]));
   }
-  return raw.map(i => ({
-    name:     i.name       || i.nome          || i.product_name  || i.productName  ||
-              i.produto    || i.title         || i.titulo        || i.description  ||
-              i.descricao  || i.item_name     || i.itemName      || i.label        ||
-              i.item       || i.product       || 'Item',
-    quantity: parseInt(i.quantity || i.quantidade || i.qty || i.amount || i.count || 1),
-    price:    parseFloat(i.price || i.valor || i.preco || i.unit_price || i.unitPrice || i.total_price || 0),
-  }));
+  return raw.map(function(i) {
+    return {
+      name:     i.name        || i.nome         || i.product_name || i.productName  ||
+                i.produto     || i.title        || i.titulo       || i.description  ||
+                i.descricao   || i.item_name    || i.itemName     || i.label        ||
+                i.item        || i.product      || 'Item',
+      quantity: parseInt(i.quantity || i.quantidade || i.qty || i.amount || i.count || 1),
+      price:    parseFloat(i.price || i.valor || i.preco || i.unit_price || i.unitPrice || i.total_price || 0),
+    };
+  });
 }
 
-/**
- * Normaliza telefone para apenas dígitos (com código do país)
- */
 function normalizePhone(phone) {
   const digits = String(phone).replace(/\D/g, '');
   if (digits.startsWith('55')) return digits;
@@ -216,11 +174,15 @@ function normalizePhone(phone) {
   return digits;
 }
 
-/**
- * Mescla itens favoritos acumulando contagem
- */
 function mergeFavoriteItems(existing, newItems) {
   const map = {};
-  [...existing, ...newItems].forEach(item => {
+  [].concat(existing, newItems).forEach(function(item) {
     const key = (item.name || '').toLowerCase();
-    if (!map[key]) map[key] = { 
+    if (!map[key]) map[key] = { name: item.name, count: 0, totalSpent: 0 };
+    map[key].count++;
+    map[key].totalSpent += (item.price || 0) * (item.quantity || 1);
+  });
+  return Object.values(map).sort(function(a, b) { return b.count - a.count; }).slice(0, 10);
+}
+
+module.exports = { receiveOrder, getStatus };

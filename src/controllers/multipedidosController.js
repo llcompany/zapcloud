@@ -157,12 +157,12 @@ function extractItems(order) {
   }
   return raw.map(function(i) {
     return {
-      name:     i.name        || i.nome         || i.product_name || i.productName  ||
+      name:     i.menu_name   || i.name        || i.nome         || i.product_name || i.productName  ||
                 i.produto     || i.title        || i.titulo       || i.description  ||
                 i.descricao   || i.item_name    || i.itemName     || i.label        ||
                 i.item        || i.product      || 'Item',
       quantity: parseInt(i.quantity || i.quantidade || i.qty || i.amount || i.count || 1),
-      price:    parseFloat(i.price || i.valor || i.preco || i.unit_price || i.unitPrice || i.total_price || 0),
+      price:    parseFloat(i.menu_price || i.price || i.valor || i.preco || i.unit_price || i.unitPrice || i.item_sub_total || 0),
     };
   });
 }

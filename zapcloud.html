@@ -20,7 +20,7 @@ button{cursor:pointer;transition:all .15s}
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel">
+<script id="jsx-src" type="text/plain">
 const {useState,useRef,useEffect}=React;
 
 const C={p:'#25D366',dk:'#128C7E',dkk:'#075E54',bbl:'#DCF8C6',bg:'#F0F2F5',tx:'#111B21',mt:'#667781',br:'#E9EDEF'};
@@ -1512,6 +1512,24 @@ function App(){
   return <Layout user={user} token={token} onLogout={()=>{setUser(null);setToken(null);}}/>;
 }
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+<script>
+(function(){
+  function runApp(){
+    var el=document.getElementById('jsx-src');
+    if(!el||!window.Babel)return setTimeout(runApp,50);
+    if(document.getElementById('root').children.length>0)return;
+    try{
+      var code=Babel.transform(el.textContent,{presets:['react'],filename:'app.jsx'}).code;
+      (0,eval)(code);
+    }catch(e){
+      document.getElementById('root').innerHTML='<div style="padding:40px;color:#e53e3e;font-family:sans-serif"><b>Erro ao carregar:</b><br>'+e.message+'</div>';
+      console.error('App error:',e);
+    }
+  }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',runApp);}
+  else{runApp();}
+})();
 </script>
 </body>
 </html>

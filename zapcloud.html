@@ -1215,6 +1215,8 @@ function Campaigns({token,wabaId}){
   const [selected,setSelected]=useState(null);
   const [form,setForm]=useState({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',tag:''}});
   const [preview,setPreview]=useState(null);
+  const [testPhone,setTestPhone]=useState('');
+  const [sendingTest,setSendingTest]=useState(false);
   const [saving,setSaving]=useState(false);
   const [executing,setExecuting]=useState(false);
 
@@ -1266,6 +1268,21 @@ function Campaigns({token,wabaId}){
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
+  };
+
+  const sendTest=async()=>{
+    if(!form.message){alert('Escreva a mensagem antes de testar!');return;}
+    if(!testPhone.trim()){alert('Digite o numero para o teste!');return;}
+    setSendingTest(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/test-send`,{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({phone:testPhone.replace(/\D/g,''),message:form.message})});
+      const d=await r.json();
+      if(d.success) alert('\u2705 Mensagem de teste enviada para '+testPhone+'!');
+      else alert('\u274c Erro: '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+    setSendingTest(false);
   };
 
   const executeCampaign=async(id)=>{

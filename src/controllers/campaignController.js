@@ -171,4 +171,48 @@ const getCampaign = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign };
+
+// ─── Envio de teste ───────────────────────────────────────────────────────────
+const testSend = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    const { phone, message } = req.body;
+
+    if (!phone || !message) {
+      return res.status(400).json({ success: false, message: 'Telefone e mensagem são obrigatórios.' });
+    }
+
+    const wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: wabaAccountId } });
+    if (!wabaAccount) return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
+
+    // Busca dados do cliente pelo telefone para substituir variáveis
+    const digits = phone.replace(/\D/g, '');
+    const normalized = digits.startsWith('55') ? digits : '55' + digits;
+    const customer = await prisma.crmCustomer.findFirst({
+      where: { wabaAccountId, phone: normalized },
+    }) || {
+      name: 'Cliente',
+      favoriteItems: [],
+      daysSinceOrder: 0,
+      totalOrders: 0,
+      averageTicket: 0,
+    };
+
+    const finalMessage = buildMessage(message, customer);
+
+    const response = await axios.post(
+      `${process.env.META_BASE_URL}/${process.env.META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
+      { messaging_product: 'whatsapp', to: normalized, type: 'text', text: { body: finalMessage } },
+      { headers: { Authorization: `Bearer ${wabaAccount.accessToken}`, 'Content-Type': 'application/json' } }
+    );
+
+    const waMessageId = response.data?.messages?.[0]?.id;
+    console.log('[Campaign] Teste enviado para', normalized, '| msgId:', waMessageId);
+    res.json({ success: true, message: 'Mensagem de teste enviada!', data: { phone: normalized, finalMessage, waMessageId } });
+  } catch (err) {
+    console.error('[Campaign] Erro no envio de teste:', err?.response?.data || err.message);
+    res.status(500).json({ success: false, message: err?.response?.data?.error?.message || err.message });
+  }
+};
+
+module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend };

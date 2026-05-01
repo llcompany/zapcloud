@@ -2,7 +2,7 @@ const express = require('express');
 const { body, param } = require('express-validator');
 const router = express.Router();
 const { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource, getCustomerOrders } = require('../controllers/crmController');
-const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign } = require('../controllers/campaignController');
+const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend } = require('../controllers/campaignController');
 const { authenticate } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 
@@ -32,6 +32,5 @@ router.post('/:wabaAccountId/campaigns', [
 ], validate, createCampaign);
 router.post('/:wabaAccountId/campaigns/preview', previewSegment);
 router.get('/:wabaAccountId/campaigns/:campaignId', getCampaign);
-router.post('/:wabaAccountId/campaigns/:campaignId/execute', executeCampaign);
-
-module.exports = router;
+router.post('/:wabaAccountId/campaigns/test-send', testSend);
+router.post('/:wabaAccountId/campaigns/:campaignId/execute', executeCam

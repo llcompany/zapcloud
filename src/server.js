@@ -74,9 +74,10 @@ app.use('/api/dashboard',    dashboardRoutes);
 app.get('/health', (req, res) => {
   res.json({
     success: true,
-    message: 'ZapFood API esta funcionando.',
+    message: 'ZapCloud API esta funcionando.',
     environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString(),
+    version: '1.2.0',
   });
 });
 

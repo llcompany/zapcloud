@@ -1532,17 +1532,32 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 <script>
 (function(){
+  var root=document.getElementById('root');
+  var started=Date.now();
+  // Mostrar loading imediatamente
+  root.innerHTML='<div id="zc-loading" style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;flex-direction:column;gap:12px;color:#667781"><div style="width:32px;height:32px;border:3px solid #25D366;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite"></div><span id="zc-status">Carregando...</span></div>';
+  function setStatus(msg){var el=document.getElementById('zc-status');if(el)el.textContent=msg;}
   function runApp(){
     var el=document.getElementById('jsx-src');
-    if(!el||!window.Babel)return setTimeout(runApp,50);
-    if(document.getElementById('root').children.length>0)return;
-    try{
-      var code=Babel.transform(el.textContent,{presets:['react'],filename:'app.jsx'}).code;
-      (0,eval)(code);
-    }catch(e){
-      document.getElementById('root').innerHTML='<div style="padding:40px;color:#e53e3e;font-family:sans-serif"><b>Erro ao carregar:</b><br>'+e.message+'</div>';
-      console.error('App error:',e);
+    if(!el){root.innerHTML='<div style="padding:40px;color:#e53e3e;font-family:sans-serif"><b>Erro:</b> elemento jsx-src nao encontrado</div>';return;}
+    if(!window.Babel){
+      if(Date.now()-started>10000){root.innerHTML='<div style="padding:40px;color:#e53e3e;font-family:sans-serif"><b>Erro:</b> Babel CDN nao carregou (verifique conexao com internet)</div>';return;}
+      setStatus('Carregando Babel...');
+      return setTimeout(runApp,100);
     }
+    if(!window.React){root.innerHTML='<div style="padding:40px;color:#e53e3e;font-family:sans-serif"><b>Erro:</b> React CDN nao carregou</div>';return;}
+    if(root.children.length>0&&!document.getElementById('zc-loading'))return;
+    setStatus('Compilando app...');
+    setTimeout(function(){
+      try{
+        var code=Babel.transform(el.textContent,{presets:['react'],filename:'app.jsx'}).code;
+        root.innerHTML='';
+        (0,eval)(code);
+      }catch(e){
+        root.innerHTML='<div style="padding:40px;color:#e53e3e;font-family:sans-serif"><b>Erro ao compilar:</b><br>'+e.message+'</div>';
+        console.error('App error:',e);
+      }
+    },0);
   }
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',runApp);}
   else{runApp();}

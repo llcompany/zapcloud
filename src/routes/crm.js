@@ -34,3 +34,4 @@ router.post('/:wabaAccountId/campaigns/preview', previewSegment);
 router.get('/:wabaAccountId/campaigns/:campaignId', getCampaign);
 router.post('/:wabaAccountId/campaigns/test-send', testSend);
 router.post('/:wabaAccountId/campaigns/:campaignId/execute', executeCampaign);
+module.exports = router;

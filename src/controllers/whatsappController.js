@@ -178,8 +178,14 @@ const webhookReceive = async (req, res) => {
     // Responder imediatamente para a Meta
     res.status(200).send('EVENT_RECEIVED');
 
-    const body = req.body;
-    if (body.object !== 'whatsapp_business_account') return;
+    // req.body pode ser Buffer (express.raw) ou objeto (express.json)
+    const body = Buffer.isBuffer(req.body)
+      ? JSON.parse(req.body.toString('utf8'))
+      : typeof req.body === 'string'
+        ? JSON.parse(req.body)
+        : req.body;
+
+    if (!body || body.object !== 'whatsapp_business_account') return;
 
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {

@@ -1395,6 +1395,15 @@ function Campaigns({token,wabaId}){
             </div>
           </div>
         </div>}
+        {form.message&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:8,fontSize:15}}>📱 Enviar teste</h3>
+          <p style={{fontSize:12,color:C.mt,marginBottom:10}}>Teste a mensagem no seu WhatsApp antes de disparar para todos.</p>
+          <input value={testPhone} onChange={e=>setTestPhone(e.target.value)} placeholder="Ex: 47997109331" type="tel"
+            style={{...inp2,marginBottom:10}}/>
+          <button onClick={sendTest} disabled={sendingTest||!testPhone.trim()} style={{width:'100%',padding:'10px',borderRadius:10,border:'none',background:'#075E54',color:'#fff',fontWeight:600,fontSize:13,opacity:(sendingTest||!testPhone.trim())?0.6:1}}>
+            {sendingTest?'Enviando...':'📱 Enviar teste'}
+          </button>
+        </div>}
         <button onClick={saveCampaign} disabled={saving} style={{padding:'14px',borderRadius:14,border:'none',background:C.p,color:'#fff',fontWeight:700,fontSize:14,boxShadow:'0 4px 14px rgba(37,211,102,.3)'}}>
           {saving?'Salvando...':'💾 Salvar campanha'}
         </button>

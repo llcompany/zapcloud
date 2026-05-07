@@ -63,6 +63,14 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'zapcloud.html'));
 });
 
+app.get('/privacidade', (req, res) => {
+  res.sendFile(path.join(__dirname, 'pages', 'privacidade.html'));
+});
+
+app.get('/termos', (req, res) => {
+  res.sendFile(path.join(__dirname, 'pages', 'termos.html'));
+});
+
 app.use('/api/auth',         authLimiter, authRoutes);
 app.use('/api/whatsapp',     whatsappRoutes);
 app.use('/api/meta',         metaRoutes);

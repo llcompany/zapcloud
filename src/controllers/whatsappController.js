@@ -47,8 +47,10 @@ const sendTextMessage = async (req, res) => {
     });
 
     // Enviar para a API da Meta
+    const metaUrl = `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`;
+    console.log(`[WhatsApp] sendTextMessage → to=${to} phoneNumberId=${wabaAccount.phoneNumberId} url=${metaUrl}`);
     const response = await axios.post(
-      `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
+      metaUrl,
       {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
@@ -65,6 +67,7 @@ const sendTextMessage = async (req, res) => {
     );
 
     const waMessageId = response.data?.messages?.[0]?.id;
+    console.log(`[WhatsApp] sendTextMessage → Meta OK waMessageId=${waMessageId}`);
 
     // Atualizar status para SENT
     await prisma.message.update({
@@ -78,11 +81,19 @@ const sendTextMessage = async (req, res) => {
       data: { messageId: dbMessage.id, waMessageId },
     });
   } catch (error) {
-    console.error('[WhatsApp] sendTextMessage:', error?.response?.data || error.message);
+    const errData = error?.response?.data;
+    console.error('[WhatsApp] sendTextMessage ERRO:', JSON.stringify(errData || error.message));
+    // Marcar mensagem como FAILED no banco
+    try {
+      await prisma.message.updateMany({
+        where: { wabaAccountId, direction: 'OUTBOUND', status: 'PENDING' },
+        data: { status: 'FAILED', errorMessage: errData?.error?.message || error.message },
+      });
+    } catch {}
     return res.status(500).json({
       success: false,
       message: 'Erro ao enviar mensagem.',
-      error: error?.response?.data,
+      error: errData,
     });
   }
 };

@@ -177,6 +177,7 @@ const webhookReceive = async (req, res) => {
   try {
     // Responder imediatamente para a Meta
     res.status(200).send('EVENT_RECEIVED');
+    console.log('[Webhook] POST recebido - Content-Type:', req.headers['content-type'], '| body type:', typeof req.body, '| isBuffer:', Buffer.isBuffer(req.body));
 
     // req.body pode ser Buffer (express.raw) ou objeto (express.json)
     const body = Buffer.isBuffer(req.body)
@@ -185,6 +186,7 @@ const webhookReceive = async (req, res) => {
         ? JSON.parse(req.body)
         : req.body;
 
+    console.log('[Webhook] body.object:', body?.object);
     if (!body || body.object !== 'whatsapp_business_account') return;
 
     for (const entry of body.entry || []) {
@@ -215,11 +217,18 @@ const webhookReceive = async (req, res) => {
 const processInboundMessage = async (value, msg) => {
   try {
     const wabaId = value.metadata?.phone_number_id;
+    console.log(`[Webhook] processInboundMessage - phoneNumberId recebido: "${wabaId}"`);
 
     const wabaAccount = await prisma.wabaAccount.findUnique({
       where: { phoneNumberId: wabaId },
     });
-    if (!wabaAccount) return;
+    console.log(`[Webhook] wabaAccount encontrado: ${wabaAccount ? wabaAccount.id : 'NÃO ENCONTRADO'}`);
+    if (!wabaAccount) {
+      // Listar todos para debug
+      const all = await prisma.wabaAccount.findMany({ select: { id: true, phoneNumberId: true, isActive: true } });
+      console.log('[Webhook] Contas cadastradas:', JSON.stringify(all));
+      return;
+    }
 
     const phone = msg.from;
 

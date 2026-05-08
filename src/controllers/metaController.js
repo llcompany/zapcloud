@@ -198,4 +198,36 @@ const disconnectWabaAccount = async (req, res) => {
   }
 };
 
-module.exports = { getAuthUrl, handleCallback, listWabaAccounts, disconnectWabaAccount };
+// ─── Atualizar token de acesso da conta WABA ─────────────────────────────────
+
+const updateWabaToken = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    const { accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ success: false, message: 'accessToken é obrigatório.' });
+    }
+
+    const account = await prisma.wabaAccount.findFirst({
+      where: { id: wabaAccountId, userId: req.user.id },
+    });
+
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Conta não encontrada.' });
+    }
+
+    const updated = await prisma.wabaAccount.update({
+      where: { id: wabaAccountId },
+      data: { accessToken, updatedAt: new Date() },
+      select: { id: true, phoneNumberId: true, displayName: true, updatedAt: true },
+    });
+
+    return res.json({ success: true, message: 'Token atualizado com sucesso.', data: updated });
+  } catch (error) {
+    console.error('[Meta] updateWabaToken:', error);
+    return res.status(500).json({ success: false, message: 'Erro ao atualizar token.' });
+  }
+};
+
+module.exports = { getAuthUrl, handleCallback, listWabaAccounts, disconnectWabaAccount, updateWabaToken };

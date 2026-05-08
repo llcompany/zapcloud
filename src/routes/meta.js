@@ -6,6 +6,7 @@ const {
   handleCallback,
   listWabaAccounts,
   disconnectWabaAccount,
+  updateWabaToken,
 } = require('../controllers/metaController');
 const { authenticate } = require('../middlewares/auth');
 
@@ -24,5 +25,8 @@ router.get('/accounts', listWabaAccounts);
 
 // DELETE /api/meta/accounts/:wabaAccountId — desconectar conta
 router.delete('/accounts/:wabaAccountId', disconnectWabaAccount);
+
+// PATCH /api/meta/accounts/:wabaAccountId/token — atualizar access token
+router.patch('/accounts/:wabaAccountId/token', updateWabaToken);
 
 module.exports = router;

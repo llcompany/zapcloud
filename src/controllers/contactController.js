@@ -33,6 +33,12 @@ const listContacts = async (req, res) => {
         orderBy: { lastSeenAt: 'desc' },
         skip,
         take: Number(limit),
+        include: {
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
       }),
       prisma.contact.count({ where }),
     ]);

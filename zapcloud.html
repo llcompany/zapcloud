@@ -251,39 +251,99 @@ function Dashboard({onNavigate,token}){
 }
 
 /* ══════════════════════════ CONVERSAS ══════════════════════════ */
-const CONTACTS=[];
-const MSGS={};
+function fmtTime(dt){
+  if(!dt)return'';
+  const d=new Date(dt),now=new Date();
+  if(d.toDateString()===now.toDateString())return d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const y=new Date(now);y.setDate(y.getDate()-1);
+  if(d.toDateString()===y.toDateString())return'Ontem';
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+}
+function msgPreview(c){
+  const m=c.messages&&c.messages[0];
+  if(!m)return'Nenhuma mensagem';
+  if(m.type==='TEXT')return m.content&&m.content.text||'';
+  if(m.type==='IMAGE')return'📷 Imagem';
+  if(m.type==='AUDIO')return'🎵 Áudio';
+  if(m.type==='VIDEO')return'🎥 Vídeo';
+  if(m.type==='DOCUMENT')return'📄 Documento';
+  if(m.type==='TEMPLATE')return'📋 Template';
+  return'Mensagem';
+}
 function Conversations({token}){
-  const [sel,setSel]=useState(CONTACTS[0]);
-  const [msgs,setMsgs]=useState(MSGS[1]||[]);
+  const [wabaId,setWabaId]=useState(null);
+  const [contacts,setContacts]=useState([]);
+  const [loadingC,setLoadingC]=useState(true);
+  const [sel,setSel]=useState(null);
+  const [msgs,setMsgs]=useState([]);
+  const [loadingM,setLoadingM]=useState(false);
   const [inp,setInp]=useState('');
   const [search,setSearch]=useState('');
-  const [view,setView]=useState('both');
   const [sending,setSending]=useState(false);
   const bot=useRef(null);
-  useEffect(()=>{bot.current?.scrollIntoView({behavior:'smooth'});},[msgs]);
-  const pick=c=>{setSel(c);setMsgs(MSGS[c.id]||[]);};
+  const pollM=useRef(null);
+  const h={'Authorization':`Bearer ${token}`};
+
+  // Buscar wabaId
+  useEffect(()=>{
+    fetch(`${API}/api/meta/accounts`,{headers:h}).then(r=>r.json())
+      .then(d=>{const a=d.data&&d.data[0];if(a)setWabaId(a.id);}).catch(()=>{});
+  },[token]);
+
+  // Buscar contatos
+  const fetchContacts=()=>{
+    if(!wabaId)return;
+    fetch(`${API}/api/whatsapp/${wabaId}/contacts?limit=100`,{headers:h})
+      .then(r=>r.json()).then(d=>setContacts((d.data&&d.data.contacts)||[]))
+      .catch(()=>{}).finally(()=>setLoadingC(false));
+  };
+  useEffect(()=>{if(wabaId){setLoadingC(true);fetchContacts();};},[wabaId]);
+  useEffect(()=>{const iv=setInterval(fetchContacts,10000);return()=>clearInterval(iv);},[wabaId]);
+
+  // Buscar mensagens
+  const fetchMsgs=()=>{
+    if(!wabaId||!sel)return;
+    fetch(`${API}/api/whatsapp/${wabaId}/contacts/${sel.id}/messages?limit=100`,{headers:h})
+      .then(r=>r.json()).then(d=>{const m=(d.data&&d.data.messages)||[];setMsgs([...m].reverse());})
+      .catch(()=>{});
+  };
+  useEffect(()=>{
+    if(!sel)return;
+    setLoadingM(true);
+    fetch(`${API}/api/whatsapp/${wabaId}/contacts/${sel.id}/messages?limit=100`,{headers:h})
+      .then(r=>r.json()).then(d=>{const m=(d.data&&d.data.messages)||[];setMsgs([...m].reverse());})
+      .catch(()=>{}).finally(()=>setLoadingM(false));
+  },[sel]);
+  useEffect(()=>{
+    clearInterval(pollM.current);
+    if(!sel)return;
+    pollM.current=setInterval(fetchMsgs,5000);
+    return()=>clearInterval(pollM.current);
+  },[sel,wabaId]);
+
+  useEffect(()=>{bot.current&&bot.current.scrollIntoView({behavior:'smooth'});},[msgs]);
+
+  const pick=c=>{setSel(c);setMsgs([]);};
   const send=async()=>{
-    if(!inp.trim()||sending)return;
-    const t=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-    const text=inp; setInp(''); setSending(true);
-    setMsgs(p=>[...p,{id:Date.now(),from:'me',text,time:t,s:'sent'}]);
+    if(!inp.trim()||sending||!sel||!wabaId)return;
+    const text=inp;setInp('');setSending(true);
     try{
-      const phone=sel.phone.replace(/\D/g,'');
-      await fetch(`${API}/api/whatsapp/send`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({to:phone,message:text})});
-    }catch(e){console.error('Erro ao enviar:',e);}
+      await fetch(`${API}/api/whatsapp/${wabaId}/messages/text`,{method:'POST',
+        headers:{...h,'Content-Type':'application/json'},
+        body:JSON.stringify({to:sel.phone,message:text})});
+      setTimeout(fetchMsgs,800);setTimeout(fetchContacts,800);
+    }catch(e){console.error(e);}
     finally{setSending(false);}
   };
-  const filtered=CONTACTS.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));
+
+  const filtered=contacts.filter(c=>(c.name||c.phone).toLowerCase().includes(search.toLowerCase())||c.phone.includes(search));
+
   return <div style={{display:'flex',height:'100%',overflow:'hidden'}}>
     {/* Lista */}
     <div style={{width:300,flexShrink:0,borderRight:`1px solid ${C.br}`,display:'flex',flexDirection:'column',background:'#fff'}}>
       <div style={{padding:14,borderBottom:`1px solid ${C.br}`}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
           <span style={{fontWeight:700,fontSize:16,color:C.tx}}>Conversas</span>
-          <button style={{width:32,height:32,borderRadius:9,border:'none',background:C.p+'18',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </button>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:12,background:C.bg}}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -291,60 +351,72 @@ function Conversations({token}){
         </div>
       </div>
       <div style={{flex:1,overflowY:'auto'}}>
-        {filtered.map(c=><div key={c.id} onClick={()=>pick(c)}
-          style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer',borderBottom:`1px solid ${C.br}`,background:sel?.id===c.id?C.p+'12':'transparent'}}>
-          <Av name={c.name} sz={44} online={c.online}/>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:'flex',justifyContent:'space-between'}}>
-              <span style={{fontWeight:500,fontSize:13,color:C.tx}}>{c.name}</span>
-              <span style={{fontSize:11,color:c.unread?C.p:C.mt}}>{c.time}</span>
+        {loadingC?<div style={{display:'flex',alignItems:'center',justifyContent:'center',padding:40,color:C.mt,fontSize:13}}>Carregando...</div>
+        :filtered.length===0?<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:40,color:C.mt,textAlign:'center'}}>
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="1.5" style={{opacity:.3,marginBottom:10}}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <p style={{fontSize:13}}>Nenhuma conversa ainda.</p>
+          <p style={{fontSize:11,marginTop:4,opacity:.7}}>Mensagens recebidas aparecerão aqui.</p>
+        </div>
+        :filtered.map(c=>{
+          const lastMsg=c.messages&&c.messages[0];
+          return <div key={c.id} onClick={()=>pick(c)}
+            style={{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer',borderBottom:`1px solid ${C.br}`,background:sel&&sel.id===c.id?C.p+'12':'transparent'}}>
+            <Av name={c.name||c.phone} sz={44}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:'flex',justifyContent:'space-between'}}>
+                <span style={{fontWeight:500,fontSize:13,color:C.tx,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',maxWidth:140}}>{c.name||c.phone}</span>
+                <span style={{fontSize:11,color:C.mt,flexShrink:0,marginLeft:4}}>{fmtTime(lastMsg&&lastMsg.createdAt||c.lastSeenAt)}</span>
+              </div>
+              <p style={{fontSize:12,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',marginTop:1}}>{msgPreview(c)}</p>
             </div>
-            <p style={{fontSize:12,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',marginTop:1}}>{c.lastMsg}</p>
-          </div>
-          {c.unread>0&&<span style={{width:20,height:20,borderRadius:'50%',background:C.p,color:'#fff',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{c.unread}</span>}
-        </div>)}
+          </div>;
+        })}
       </div>
     </div>
     {/* Chat */}
     <div style={{flex:1,display:'flex',flexDirection:'column'}}>
-      {sel&&<>
+      {sel?<>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:`1px solid ${C.br}`,background:'#fff',boxShadow:'0 1px 3px rgba(0,0,0,.05)'}}>
-          <Av name={sel.name} sz={40} online={sel.online}/>
+          <Av name={sel.name||sel.phone} sz={40}/>
           <div style={{flex:1}}>
-            <p style={{fontWeight:600,fontSize:13,color:C.tx}}>{sel.name}</p>
-            <p style={{fontSize:12,color:sel.online?C.p:C.mt}}>{sel.online?'online':sel.phone}</p>
+            <p style={{fontWeight:600,fontSize:13,color:C.tx}}>{sel.name||sel.phone}</p>
+            <p style={{fontSize:12,color:C.mt}}>{sel.name?sel.phone:''}</p>
           </div>
-          {[["M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12"],["M23 7l-7 5 7 5V7zM1 5h15v14H1z"],["M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"]].map((d,i)=>(
-            <button key={i} style={{width:36,height:36,borderRadius:'50%',border:'none',background:'none',display:'flex',alignItems:'center',justifyContent:'center'}}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d={d[0]}/></svg>
-            </button>
-          ))}
         </div>
         <div className="chat-bg" style={{flex:1,overflowY:'auto',padding:14}}>
-          {msgs.map(m=><div key={m.id} style={{display:'flex',justifyContent:m.from==='me'?'flex-end':'flex-start',marginBottom:5}}>
-            <div style={{maxWidth:'65%',padding:'8px 11px',boxShadow:'0 1px 2px rgba(0,0,0,.08)',background:m.from==='me'?C.bbl:'#fff',borderRadius:m.from==='me'?'16px 16px 4px 16px':'16px 16px 16px 4px'}}>
-              <p style={{fontSize:13,color:C.tx,lineHeight:1.4}}>{m.text}</p>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:3,marginTop:2}}>
-                <span style={{fontSize:11,color:C.mt}}>{m.time}</span>
-                {m.from==='me'&&<Status s={m.s}/>}
+          {loadingM?<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:C.mt,fontSize:13}}>Carregando mensagens...</div>
+          :msgs.length===0?<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:C.mt,fontSize:13}}>Nenhuma mensagem.</div>
+          :msgs.map(m=>{
+            const isMe=m.direction==='OUTBOUND';
+            const txt=m.type==='TEXT'?m.content&&m.content.text
+              :m.type==='TEMPLATE'?'[Template: '+(m.content&&m.content.templateName)+']'
+              :m.type==='IMAGE'?'📷 Imagem':m.type==='AUDIO'?'🎵 Áudio':m.type==='VIDEO'?'🎥 Vídeo':m.type==='DOCUMENT'?'📄 Documento':'[Mensagem]';
+            return <div key={m.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',marginBottom:5}}>
+              <div style={{maxWidth:'65%',padding:'8px 11px',boxShadow:'0 1px 2px rgba(0,0,0,.08)',background:isMe?C.bbl:'#fff',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px'}}>
+                <p style={{fontSize:13,color:C.tx,lineHeight:1.4}}>{txt}</p>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:3,marginTop:2}}>
+                  <span style={{fontSize:11,color:C.mt}}>{fmtTime(m.createdAt)}</span>
+                  {isMe&&<Status s={m.status&&m.status.toLowerCase()}/>}
+                </div>
               </div>
-            </div>
-          </div>)}
+            </div>;
+          })}
           <div ref={bot}/>
         </div>
         <div style={{padding:'10px 14px',borderTop:`1px solid ${C.br}`,background:'#fff',display:'flex',alignItems:'center',gap:8}}>
-          <button style={{width:36,height:36,borderRadius:'50%',border:'none',background:'none',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          </button>
           <div style={{flex:1,display:'flex',alignItems:'center',gap:8,padding:'9px 14px',borderRadius:24,background:C.bg}}>
             <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()}
-              placeholder="Digite uma mensagem" style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
+              placeholder="Digite uma mensagem" disabled={sending}
+              style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
           </div>
-          <button onClick={send} style={{width:40,height:40,borderRadius:'50%',border:'none',background:inp.trim()?C.p:C.mt,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,.15)'}}>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          <button onClick={send} disabled={sending||!inp.trim()}
+            style={{width:40,height:40,borderRadius:'50%',border:'none',background:inp.trim()&&!sending?C.p:C.mt,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,.15)',opacity:sending?0.6:1}}>
+            {sending
+              ?<span className="spin"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>
+              :<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>}
           </button>
         </div>
-      </>}
+      </>:<div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:C.mt,fontSize:13}}>Selecione uma conversa</div>}
     </div>
   </div>;
 }

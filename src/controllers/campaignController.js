@@ -21,9 +21,11 @@ function buildFilter(wabaAccountId, segmentFilter) {
   const where = { wabaAccountId, isActive: true };
   const { daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags } = segmentFilter || {};
 
-  if (daysInactive)    where.daysSinceOrder = { gte: parseInt(daysInactive) };
-  if (minDaysInactive) where.daysSinceOrder = { ...where.daysSinceOrder, gte: parseInt(minDaysInactive) };
-  if (maxDaysInactive) where.daysSinceOrder = { ...where.daysSinceOrder, lte: parseInt(maxDaysInactive) };
+  // Usa lastOrderAt para calcular dias dinamicamente (daysSinceOrder no banco fica obsoleto)
+  const now = Date.now();
+  if (daysInactive)    where.lastOrderAt = { ...where.lastOrderAt, lte: new Date(now - parseInt(daysInactive) * 86400000) };
+  if (minDaysInactive) where.lastOrderAt = { ...where.lastOrderAt, lte: new Date(now - parseInt(minDaysInactive) * 86400000) };
+  if (maxDaysInactive) where.lastOrderAt = { ...where.lastOrderAt, gte: new Date(now - parseInt(maxDaysInactive) * 86400000) };
   if (minOrders)       where.totalOrders    = { ...where.totalOrders, gte: parseInt(minOrders) };
   if (maxOrders)       where.totalOrders    = { ...where.totalOrders, lte: parseInt(maxOrders) };
   if (minTicket)       where.averageTicket  = { ...where.averageTicket, gte: parseFloat(minTicket) };

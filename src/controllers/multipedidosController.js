@@ -66,6 +66,7 @@ async function receiveOrder(req, res) {
           lastOrderAt:    new Date(),
           daysSinceOrder: 0,
           favoriteItems:  favItems,
+          tags:           buildOrderTags(newTotal, existing.tags),
           source:         'multipedidos',
         },
       });
@@ -82,7 +83,7 @@ async function receiveOrder(req, res) {
           lastOrderAt:    new Date(),
           daysSinceOrder: 0,
           favoriteItems:  order.items || [],
-          tags:           ['multipedidos'],
+          tags:           buildOrderTags(1, ['multipedidos']),
           source:         'multipedidos',
           externalId:     String(order.id || ''),
         },
@@ -167,6 +168,16 @@ function extractItems(order) {
   });
 }
 
+// Gera tags de frequência baseadas no total de pedidos
+function buildOrderTags(totalOrders, existingTags = []) {
+  const base = (existingTags || []).filter(t => !t.startsWith('comprou-'));
+  const milestones = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+  for (const m of milestones) {
+    if (totalOrders >= m) base.push(`comprou-${m}x`);
+  }
+  return [...new Set(base)];
+}
+
 function normalizePhone(phone) {
   const digits = String(phone).replace(/\D/g, '');
   if (digits.startsWith('55')) return digits;
@@ -185,4 +196,31 @@ function mergeFavoriteItems(existing, newItems) {
   return Object.values(map).sort(function(a, b) { return b.count - a.count; }).slice(0, 10);
 }
 
-module.exports = { receiveOrder, getStatus };
+// ─── Backfill: atualizar tags de todos os clientes com base no totalOrders ────
+async function backfillTags(req, res) {
+  try {
+    const customers = await prisma.crmCustomer.findMany({
+      select: { id: true, totalOrders: true, tags: true, lastOrderAt: true },
+    });
+
+    let updated = 0;
+    for (const c of customers) {
+      const newTags = buildOrderTags(c.totalOrders, c.tags);
+      const daysSinceOrder = c.lastOrderAt
+        ? Math.floor((Date.now() - new Date(c.lastOrderAt).getTime()) / 86400000)
+        : 0;
+      await prisma.crmCustomer.update({
+        where: { id: c.id },
+        data: { tags: newTags, daysSinceOrder },
+      });
+      updated++;
+    }
+
+    res.json({ success: true, message: `${updated} clientes atualizados com tags e daysSinceOrder.` });
+  } catch (err) {
+    console.error('[Backfill] Erro:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { receiveOrder, getStatus, backfillTags };

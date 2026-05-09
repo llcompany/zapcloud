@@ -9,4 +9,7 @@ router.post('/webhook', ctrl.receiveOrder);
 const { authenticate } = require('../middlewares/auth');
 router.get('/status', authenticate, ctrl.getStatus);
 
+// Backfill: recalcular tags e daysSinceOrder de todos os clientes
+router.post('/backfill-tags', authenticate, ctrl.backfillTags);
+
 module.exports = router;

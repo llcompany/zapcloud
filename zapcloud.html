@@ -527,7 +527,7 @@ function ConnectOficial({token,onBack}){
         title="Conta API conectada!"
         sub="Sua WABA foi vinculada com sucesso ao ZapCloud"
         name={account?.displayName||'Minha Empresa'}
-        phone="+55 47 9727-7378"
+        phone={account?.phoneNumberId||null}
         onReset={()=>{setDone(false);setStep(0);}}
       />
     ):(
@@ -1285,7 +1285,7 @@ function Campaigns({token,wabaId}){
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',tag:''}});
+  const [form,setForm]=useState({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
   const [sendingTest,setSendingTest]=useState(false);
@@ -1306,15 +1306,13 @@ function Campaigns({token,wabaId}){
 
   useEffect(()=>{load();},[token,wabaId]);
 
-  const doPreview=async(tagOverride)=>{
+  const doPreview=async()=>{
     try{
       const sf={};
-      const tag=tagOverride!==undefined?tagOverride:form.segmentFilter.tag;
       if(form.segmentFilter.daysInactive) sf.daysInactive=form.segmentFilter.daysInactive;
       if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
       if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
       if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
-      if(tag) sf.tag=tag;
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/preview`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({segmentFilter:sf})});
@@ -1332,12 +1330,11 @@ function Campaigns({token,wabaId}){
       if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
       if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
       if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
-      if(form.segmentFilter.tag) sf.tag=form.segmentFilter.tag;
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({name:form.name,message:form.message,segmentFilter:sf})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',tag:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
@@ -1407,22 +1404,6 @@ function Campaigns({token,wabaId}){
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>🎯 Segmentação</h3>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <div style={{gridColumn:'1 / -1'}}>
-              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>🏷️ Grupo de compras</label>
-              <select value={form.segmentFilter.tag} onChange={e=>{const v=e.target.value;setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:v}}));doPreview(v);}} style={inp2}>
-                <option value="">Todos os clientes</option>
-                <option value="comprou-10x">Comprou 10x+</option>
-                <option value="comprou-20x">Comprou 20x+</option>
-                <option value="comprou-30x">Comprou 30x+</option>
-                <option value="comprou-40x">Comprou 40x+</option>
-                <option value="comprou-50x">Comprou 50x+</option>
-                <option value="comprou-60x">Comprou 60x+</option>
-                <option value="comprou-70x">Comprou 70x+</option>
-                <option value="comprou-80x">Comprou 80x+</option>
-                <option value="comprou-90x">Comprou 90x+</option>
-                <option value="comprou-100x">Comprou 100x+</option>
-              </select>
-            </div>
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Dias sem comprar (mín.)</label>
               <input type="number" value={form.segmentFilter.daysInactive} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,daysInactive:e.target.value}}))} placeholder="Ex: 7" style={inp2}/>
@@ -1440,7 +1421,7 @@ function Campaigns({token,wabaId}){
               <input type="number" value={form.segmentFilter.minTicket} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minTicket:e.target.value}}))} placeholder="Ex: 50" style={inp2}/>
             </div>
           </div>
-          <button onClick={doPreview} style={{marginTop:14,padding:'9px 20px',borderRadius:10,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,fontWeight:600,fontSize:13}}>
+          <button onClick={()=>doPreview()} style={{marginTop:14,padding:'9px 20px',borderRadius:10,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,fontWeight:600,fontSize:13}}>
             👁 Calcular alcance
           </button>
         </div>

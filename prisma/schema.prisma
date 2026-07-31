@@ -43,6 +43,7 @@ model WabaAccount {
   userId          String
   wabaId          String   @unique
   phoneNumberId   String   @unique
+  phoneNumber     String?
   displayName     String
   accessToken     String   // token de acesso permanente
   webhookVerified Boolean  @default(false)

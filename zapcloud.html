@@ -527,7 +527,7 @@ function ConnectOficial({token,onBack}){
         title="Conta API conectada!"
         sub="Sua WABA foi vinculada com sucesso ao ZapCloud"
         name={account?.displayName||'Minha Empresa'}
-        phone={account?.phoneNumberId||null}
+        phone={account?.phoneNumber||account?.phoneNumberId||null}
         onReset={()=>{setDone(false);setStep(0);}}
       />
     ):(

@@ -142,7 +142,7 @@ const me = async (req, res) => {
         role: true,
         createdAt: true,
         wabaAccounts: {
-          select: { id: true, wabaId: true, phoneNumberId: true, displayName: true, isActive: true },
+          select: { id: true, wabaId: true, phoneNumberId: true, phoneNumber: true, displayName: true, isActive: true },
         },
       },
     });

@@ -133,6 +133,11 @@ const refreshToken = async (req, res) => {
 
 const me = async (req, res) => {
   try {
+    // TEMP DEBUG: check which database/users Prisma actually sees
+    const [dbInfo] = await prisma.$queryRaw`SELECT current_database() as db, current_schema() as schema`;
+    const allUsers = await prisma.$queryRaw`SELECT id, email FROM users LIMIT 10`;
+    const publicUsers = await prisma.$queryRaw`SELECT id, email FROM public.users LIMIT 10`;
+
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
@@ -164,7 +169,7 @@ const me = async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: user });
+    return res.json({ success: true, data: user, _debug: { dbInfo, allUsers, publicUsers, reqUserId: req.user.id } });
   } catch (error) {
     console.error('[Auth] me:', error);
     return res.status(500).json({ success: false, message: 'Erro interno do servidor.' });

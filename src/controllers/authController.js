@@ -153,7 +153,7 @@ const me = async (req, res) => {
         const ids = user.wabaAccounts.map(w => w.id);
         const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
         const rows = await prisma.$queryRawUnsafe(
-          `SELECT id, "phoneNumber" FROM public.waba_accounts WHERE id IN (${placeholders})`,
+          `SELECT id, "phoneNumber" FROM waba_accounts WHERE id IN (${placeholders})`,
           ...ids
         );
         const phoneMap = Object.fromEntries(rows.map(r => [r.id, r.phoneNumber]));
@@ -164,8 +164,7 @@ const me = async (req, res) => {
       }
     }
 
-    const _dbUrl = (process.env.DATABASE_URL || '').replace(/:[^:@]+@/, ':***@').substring(0, 60);
-    return res.json({ success: true, data: user, _dbUrl });
+    return res.json({ success: true, data: user });
   } catch (error) {
     console.error('[Auth] me:', error);
     return res.status(500).json({ success: false, message: 'Erro interno do servidor.' });

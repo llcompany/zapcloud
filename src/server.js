@@ -101,9 +101,21 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log('ZapFood API rodando na porta ' + PORT);
   console.log('Ambiente: ' + (process.env.NODE_ENV || 'development'));
+
+  // Fix único: vincular Forest Burger ao userId correto do Murilo
+  try {
+    const prisma = require('./utils/prisma');
+    const result = await prisma.wabaAccount.updateMany({
+      where: { displayName: 'Forest Burger', userId: { not: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' } },
+      data: { userId: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' },
+    });
+    if (result.count > 0) console.log('[Fix] Forest Burger vinculado ao userId correto:', result.count);
+  } catch (e) {
+    console.error('[Fix] Erro ao corrigir Forest Burger:', e.message);
+  }
 });
 
 module.exports = app;

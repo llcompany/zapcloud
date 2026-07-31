@@ -146,7 +146,6 @@ const me = async (req, res) => {
             id: true,
             wabaId: true,
             phoneNumberId: true,
-            phoneNumber: true,
             displayName: true,
             isActive: true,
           },

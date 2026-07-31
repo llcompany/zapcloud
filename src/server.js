@@ -79,20 +79,6 @@ app.use('/api/wa-business',  waBusinessRoutes);
 app.use('/api/multipedidos', multipedidosRoutes);
 app.use('/api/dashboard',    dashboardRoutes);
 
-// ─── FIX TEMPORÁRIO: vincular Forest Burger ao userId correto ────────────────
-app.get('/api/admin/fix-forest-burger-zc2024', async (req, res) => {
-  try {
-    const prisma = require('./utils/prisma');
-    const result = await prisma.wabaAccount.updateMany({
-      where: { displayName: 'Forest Burger' },
-      data: { userId: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' },
-    });
-    return res.json({ success: true, updated: result.count });
-  } catch (e) {
-    return res.status(500).json({ success: false, error: e.message });
-  }
-});
-
 app.get('/health', (req, res) => {
   res.json({
     success: true,

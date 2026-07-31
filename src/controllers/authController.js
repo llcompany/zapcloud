@@ -142,27 +142,10 @@ const me = async (req, res) => {
         role: true,
         createdAt: true,
         wabaAccounts: {
-          select: { id: true, wabaId: true, phoneNumberId: true, displayName: true, isActive: true },
+          select: { id: true, wabaId: true, phoneNumberId: true, phoneNumber: true, displayName: true, isActive: true },
         },
       },
     });
-
-    // Fetch phoneNumber via raw SQL (bypasses Prisma client cache issues)
-    if (user?.wabaAccounts?.length) {
-      try {
-        const ids = user.wabaAccounts.map(w => w.id);
-        const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
-        const rows = await prisma.$queryRawUnsafe(
-          `SELECT id, "phoneNumber" FROM waba_accounts WHERE id IN (${placeholders})`,
-          ...ids
-        );
-        const phoneMap = Object.fromEntries(rows.map(r => [r.id, r.phoneNumber]));
-        user.wabaAccounts = user.wabaAccounts.map(w => ({ ...w, phoneNumber: phoneMap[w.id] ?? null }));
-      } catch (e) {
-        console.error('[Auth] me phoneNumber fetch:', e.message);
-        user.wabaAccounts = user.wabaAccounts.map(w => ({ ...w, phoneNumber: null }));
-      }
-    }
 
     return res.json({ success: true, data: user });
   } catch (error) {

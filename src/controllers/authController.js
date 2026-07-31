@@ -133,34 +133,28 @@ const refreshToken = async (req, res) => {
 
 const me = async (req, res) => {
   try {
+    // Get basic user info only (no nested wabaAccounts to avoid Prisma client version issues)
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        createdAt: true,
-        wabaAccounts: {
-          select: { id: true, wabaId: true, phoneNumberId: true, displayName: true, isActive: true },
-        },
-      },
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
     });
 
-    if (user?.wabaAccounts?.length) {
-      try {
-        const ids = user.wabaAccounts.map(w => w.id);
-        const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
-        const rows = await prisma.$queryRawUnsafe(
-          `SELECT id, "phoneNumber" FROM public.waba_accounts WHERE id IN (${placeholders})`,
-          ...ids
-        );
-        const phoneMap = Object.fromEntries(rows.map(r => [r.id, r.phoneNumber]));
-        user.wabaAccounts = user.wabaAccounts.map(w => ({ ...w, phoneNumber: phoneMap[w.id] ?? null }));
-      } catch (e) {
-        console.error('[Auth] me phoneNumber fetch:', e.message);
-        user.wabaAccounts = user.wabaAccounts.map(w => ({ ...w, phoneNumber: null }));
-      }
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
+    }
+
+    // Fetch wabaAccounts via raw SQL to bypass any Prisma client schema issues
+    try {
+      const wabaAccounts = await prisma.$queryRawUnsafe(
+        `SELECT id, "wabaId", "phoneNumberId", "phoneNumber", "displayName", "isActive"
+         FROM public.waba_accounts
+         WHERE "userId" = $1`,
+        req.user.id
+      );
+      user.wabaAccounts = wabaAccounts;
+    } catch (e) {
+      console.error('[Auth] me wabaAccounts:', e.message);
+      user.wabaAccounts = [];
     }
 
     return res.json({ success: true, data: user });

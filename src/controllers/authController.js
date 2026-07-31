@@ -164,7 +164,8 @@ const me = async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: user });
+    const _dbUrl = (process.env.DATABASE_URL || '').replace(/:[^:@]+@/, ':***@').substring(0, 60);
+    return res.json({ success: true, data: user, _dbUrl });
   } catch (error) {
     console.error('[Auth] me:', error);
     return res.status(500).json({ success: false, message: 'Erro interno do servidor.' });

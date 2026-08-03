@@ -132,6 +132,42 @@ app.listen(PORT, async () => {
   } catch (e) {
     console.error('[Fix] Erro Forest Burger:', e.message);
   }
+
+  // Subscrever WABA Forest Burger ao webhook do app
+  try {
+    const axios = require('axios');
+    const fb = await prisma.wabaAccount.findUnique({ where: { phoneNumberId: '1274171199105136' } });
+    if (fb && fb.accessToken) {
+      const BUSINESS_ID = '191098610746680';
+      // Busca WABAs do negócio para obter o wabaId real
+      const wabaRes = await axios.get(
+        `https://graph.facebook.com/v20.0/${BUSINESS_ID}/owned_whatsapp_business_accounts`,
+        { params: { access_token: fb.accessToken }, timeout: 10000 }
+      );
+      const wabas = wabaRes.data.data;
+      console.log('[Fix] WABAs encontradas:', JSON.stringify(wabas?.map(w => ({ id: w.id, name: w.name }))));
+      if (wabas && wabas.length > 0) {
+        const realWabaId = wabas[0].id;
+        // Inscrever o app para receber eventos deste WABA
+        const subRes = await axios.post(
+          `https://graph.facebook.com/v20.0/${realWabaId}/subscribed_apps`,
+          null,
+          { params: { access_token: fb.accessToken }, timeout: 10000 }
+        );
+        console.log('[Fix] Webhook subscribed_apps:', JSON.stringify(subRes.data));
+        // Atualizar wabaId correto no banco
+        if (fb.wabaId !== realWabaId) {
+          await prisma.wabaAccount.update({
+            where: { phoneNumberId: '1274171199105136' },
+            data: { wabaId: realWabaId },
+          });
+          console.log('[Fix] wabaId real atualizado:', realWabaId);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[Fix] Erro ao subscrever webhook Forest Burger:', e.response?.data || e.message);
+  }
 });
 
 module.exports = app;

@@ -32,14 +32,19 @@ async function receiveOrder(req, res) {
       return res.json({ success: true, message: 'Recebido, mas sem dados de cliente.' });
     }
 
-    const wabaAccount = await prisma.wabaAccount.findFirst({
-      orderBy: { createdAt: 'asc' },
-    });
+    // Rota por wabaAccountId na URL (multi-tenant) ou fallback para a primeira conta
+    let wabaAccount;
+    if (req.params?.wabaAccountId) {
+      wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: req.params.wabaAccountId } });
+    } else {
+      wabaAccount = await prisma.wabaAccount.findFirst({ orderBy: { createdAt: 'asc' } });
+    }
 
     if (!wabaAccount) {
       console.warn('[Multipedidos] Nenhuma WabaAccount encontrada.');
       return res.json({ success: true, message: 'Webhook funcionando! Configure uma conta WhatsApp.' });
     }
+    console.log('[Multipedidos] Roteando para conta:', wabaAccount.displayName);
 
     const phone = normalizePhone(customer.phone);
     const existing = await prisma.crmCustomer.findFirst({
@@ -113,13 +118,21 @@ async function receiveOrder(req, res) {
 
 async function getStatus(req, res) {
   try {
+    const wabaAccount = await prisma.wabaAccount.findFirst({
+      where: { userId: req.userId },
+    });
+    const baseUrl = process.env.PUBLIC_URL || 'http://localhost:3000';
+    const webhookUrl = wabaAccount
+      ? `${baseUrl}/api/multipedidos/webhook/${wabaAccount.id}`
+      : `${baseUrl}/api/multipedidos/webhook`;
+
     const totalCustomers = await prisma.crmCustomer.count({
-      where: { source: 'multipedidos' },
+      where: { source: 'multipedidos', ...(wabaAccount ? { wabaAccountId: wabaAccount.id } : {}) },
     });
     res.json({
       success: true,
       data: {
-        webhookUrl:      (process.env.PUBLIC_URL || 'http://localhost:3000') + '/api/multipedidos/webhook',
+        webhookUrl,
         totalReceived:   stats.total,
         lastAt:          stats.lastAt,
         lastPayload:     stats.lastPayload,

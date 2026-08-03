@@ -105,16 +105,32 @@ app.listen(PORT, async () => {
   console.log('ZapFood API rodando na porta ' + PORT);
   console.log('Ambiente: ' + (process.env.NODE_ENV || 'development'));
 
-  // Fix único: vincular Forest Burger ao userId correto do Murilo
+  // Fix: criar wabaAccount do Forest Burger se não existir
   try {
     const prisma = require('./utils/prisma');
-    const result = await prisma.wabaAccount.updateMany({
-      where: { displayName: 'Forest Burger', userId: { not: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' } },
-      data: { userId: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' },
-    });
-    if (result.count > 0) console.log('[Fix] Forest Burger vinculado ao userId correto:', result.count);
+    const existing = await prisma.wabaAccount.findUnique({ where: { phoneNumberId: '1274171199105136' } });
+    if (!existing) {
+      await prisma.wabaAccount.create({
+        data: {
+          userId:        '54db6bb3-1afe-4c62-995a-8f3015d0dbb3',
+          wabaId:        '803593902776258',
+          phoneNumberId: '1274171199105136',
+          phoneNumber:   '+55 47 9161-6193',
+          displayName:   'Forest Burger',
+          accessToken:   'EAALa3UkeX8IBSIBeUvbcUfgVunqPSaN1UhPPYRC6GvY0WWmdM4uAD8V7FlCG1cOvnMgiMcJLBoxPQqb0nLFz836XBVHHA8RDLEP35j2RYPs06csgfTJ3umaFNTZBWADfDEsoNOE2mXFd5E4KnaSZCafbww0NDQ8TAodsBHT83nShrMH2pSCtSBeUR8Ap5DygZDZD',
+          isActive:      true,
+        },
+      });
+      console.log('[Fix] wabaAccount Forest Burger criado com sucesso.');
+    } else if (existing.userId !== '54db6bb3-1afe-4c62-995a-8f3015d0dbb3') {
+      await prisma.wabaAccount.update({
+        where: { phoneNumberId: '1274171199105136' },
+        data: { userId: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' },
+      });
+      console.log('[Fix] Forest Burger userId corrigido.');
+    }
   } catch (e) {
-    console.error('[Fix] Erro ao corrigir Forest Burger:', e.message);
+    console.error('[Fix] Erro Forest Burger:', e.message);
   }
 });
 

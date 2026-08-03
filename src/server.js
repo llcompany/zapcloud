@@ -106,8 +106,8 @@ app.listen(PORT, async () => {
   console.log('Ambiente: ' + (process.env.NODE_ENV || 'development'));
 
   // Fix: criar wabaAccount do Forest Burger se não existir
+  const prisma = require('./utils/prisma');
   try {
-    const prisma = require('./utils/prisma');
     const existing = await prisma.wabaAccount.findUnique({ where: { phoneNumberId: '1274171199105136' } });
     if (!existing) {
       await prisma.wabaAccount.create({

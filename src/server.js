@@ -105,7 +105,8 @@ app.listen(PORT, async () => {
   console.log('ZapFood API rodando na porta ' + PORT);
   console.log('Ambiente: ' + (process.env.NODE_ENV || 'development'));
 
-  // Fix: criar wabaAccount do Forest Burger se não existir
+  // Fix: criar/atualizar wabaAccount do Forest Burger
+  const FOREST_TOKEN = 'EAALa3UkeX8IBSMQqpllFJgsUtZCigth70SeZBCRKxZBjSGGrlT7FB8ZCZAz38QQuC959AkTUT178utJFZAZAepR0h1jXtnA48CzxKcA9Bsp4ZCkcRIqj1FMdIMMyJdRnaoeoIEMqIwRTbXfiuSITg4OlkqBWg6qdSIRLUFygpRWBKdgSNYwXy4Usqk3ZAJgZALKfeDRQZDZD';
   const prisma = require('./utils/prisma');
   try {
     const existing = await prisma.wabaAccount.findUnique({ where: { phoneNumberId: '1274171199105136' } });
@@ -117,17 +118,20 @@ app.listen(PORT, async () => {
           phoneNumberId: '1274171199105136',
           phoneNumber:   '+55 47 9161-6193',
           displayName:   'Forest Burger',
-          accessToken:   'EAALa3UkeX8IBSIBeUvbcUfgVunqPSaN1UhPPYRC6GvY0WWmdM4uAD8V7FlCG1cOvnMgiMcJLBoxPQqb0nLFz836XBVHHA8RDLEP35j2RYPs06csgfTJ3umaFNTZBWADfDEsoNOE2mXFd5E4KnaSZCafbww0NDQ8TAodsBHT83nShrMH2pSCtSBeUR8Ap5DygZDZD',
+          accessToken:   FOREST_TOKEN,
           isActive:      true,
         },
       });
       console.log('[Fix] wabaAccount Forest Burger criado com sucesso.');
-    } else if (existing.userId !== '54db6bb3-1afe-4c62-995a-8f3015d0dbb3') {
-      await prisma.wabaAccount.update({
-        where: { phoneNumberId: '1274171199105136' },
-        data: { userId: '54db6bb3-1afe-4c62-995a-8f3015d0dbb3' },
-      });
-      console.log('[Fix] Forest Burger userId corrigido.');
+    } else {
+      // Atualizar userId e token sempre que necessário
+      const updates = {};
+      if (existing.userId !== '54db6bb3-1afe-4c62-995a-8f3015d0dbb3') updates.userId = '54db6bb3-1afe-4c62-995a-8f3015d0dbb3';
+      if (existing.accessToken !== FOREST_TOKEN) updates.accessToken = FOREST_TOKEN;
+      if (Object.keys(updates).length > 0) {
+        await prisma.wabaAccount.update({ where: { phoneNumberId: '1274171199105136' }, data: updates });
+        console.log('[Fix] Forest Burger atualizado:', Object.keys(updates).join(', '));
+      }
     }
   } catch (e) {
     console.error('[Fix] Erro Forest Burger:', e.message);

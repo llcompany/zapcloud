@@ -774,7 +774,7 @@ function Integracoes({token}){
         customer:{ name:'Cliente Teste', phone:'5547999999999' },
         order:{ id:'TEST-001', total:45.90, items:[{name:'Pizza Margherita',quantity:1,price:45.90}] }
       };
-      const r=await fetch(`${API}/api/multipedidos/webhook`,{
+      const r=await fetch(webhookUrl||`${API}/api/multipedidos/webhook`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify(payload)

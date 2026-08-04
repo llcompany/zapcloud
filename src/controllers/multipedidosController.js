@@ -119,7 +119,7 @@ async function receiveOrder(req, res) {
 async function getStatus(req, res) {
   try {
     const wabaAccount = await prisma.wabaAccount.findFirst({
-      where: { userId: req.userId },
+      where: { userId: req.user.id },
     });
     const baseUrl = process.env.PUBLIC_URL || 'http://localhost:3000';
     const webhookUrl = wabaAccount

@@ -1,4 +1,5 @@
 const express = require('express');
+const { body, param } = require('express-validator');
 const router = express.Router();
 
 const {
@@ -8,7 +9,13 @@ const {
   disconnectWabaAccount,
   updateWabaToken,
 } = require('../controllers/metaController');
+const {
+  listTemplates,
+  createTemplate,
+  deleteTemplate,
+} = require('../controllers/templateController');
 const { authenticate } = require('../middlewares/auth');
+const { validate } = require('../middlewares/validate');
 
 // Todas as rotas de integração Meta requerem autenticação
 router.use(authenticate);
@@ -28,5 +35,32 @@ router.delete('/accounts/:wabaAccountId', disconnectWabaAccount);
 
 // PATCH /api/meta/accounts/:wabaAccountId/token — atualizar access token
 router.patch('/accounts/:wabaAccountId/token', updateWabaToken);
+
+// ─── Templates de mensagem ───────────────────────────────────────────────────
+// Declaradas depois das rotas estáticas (/auth-url, /callback, /accounts) para
+// que o parâmetro :wabaAccountId não as capture.
+
+// GET /api/meta/:wabaAccountId/templates — lista do banco + sincroniza status na Meta
+router.get('/:wabaAccountId/templates', [param('wabaAccountId').isUUID()], validate, listTemplates);
+
+// POST /api/meta/:wabaAccountId/templates — cria na Meta e salva no banco
+router.post(
+  '/:wabaAccountId/templates',
+  [
+    param('wabaAccountId').isUUID(),
+    body('name').trim().notEmpty().withMessage('Nome do template obrigatório.'),
+    body('bodyText').trim().notEmpty().withMessage('Corpo da mensagem obrigatório.'),
+  ],
+  validate,
+  createTemplate
+);
+
+// DELETE /api/meta/:wabaAccountId/templates/:id — remove na Meta e no banco
+router.delete(
+  '/:wabaAccountId/templates/:id',
+  [param('wabaAccountId').isUUID(), param('id').isUUID()],
+  validate,
+  deleteTemplate
+);
 
 module.exports = router;

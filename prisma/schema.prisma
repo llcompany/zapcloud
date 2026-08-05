@@ -150,11 +150,15 @@ model Template {
   language        String         @default("pt_BR")
   status          TemplateStatus @default(PENDING)
   components      Json           // estrutura dos componentes Meta
+  bodyText        String?        // espelho de components[BODY].text - corpo com {{1}}, {{2}} etc.
+  variableCount   Int            @default(0) // quantas variáveis posicionais o corpo tem
+  rejectedReason  String?        // motivo devolvido pela Meta quando REJECTED
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   // Relacionamentos
   wabaAccount WabaAccount @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+  campaigns   Campaign[]
 
   @@unique([wabaAccountId, name])
   @@map("templates")
@@ -225,7 +229,9 @@ model Campaign {
   id              String         @id @default(uuid())
   wabaAccountId   String
   name            String
-  message         String         // suporta variáveis: {{nome}}, {{produto_favorito}}, {{dias_sem_comprar}}
+  message         String         // corpo renderizado (referência/histórico). Com template, espelha o bodyText.
+  templateId      String?        // template aprovado usado no disparo (obrigatório para envio em massa)
+  templateParams  Json           @default("[]") // tokens por posicao: ["nome","dias_sem_comprar"] alimenta {{1}},{{2}}
   segmentFilter   Json           // filtros: { daysInactive, minOrders, maxOrders, minTicket, favoriteItem, tags }
   status          CampaignStatus @default(DRAFT)
   totalRecipients Int            @default(0)
@@ -239,6 +245,7 @@ model Campaign {
 
   // Relacionamentos
   wabaAccount WabaAccount         @relation(fields: [wabaAccountId], references: [id], onDelete: Cascade)
+  template    Template?           @relation(fields: [templateId], references: [id], onDelete: SetNull)
   executions  CampaignExecution[]
 
   @@map("campaigns")

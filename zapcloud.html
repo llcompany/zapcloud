@@ -1279,13 +1279,196 @@ function CRM({token,wabaId}){
   </div>;
 }
 
+/* ══════════════════════════ TEMPLATES ══════════════════════════ */
+const TPL_STATUS={
+  APPROVED:['Aprovado','#25D366','#25D36618'],
+  PENDING :['Em análise','#ECB22E','#ECB22E18'],
+  REJECTED:['Rejeitado','#FF5252','#FF525218'],
+  DISABLED:['Desativado','#667781','#f0f2f5'],
+};
+function TplBadge({status}){
+  const [label,col,bg]=TPL_STATUS[status]||['–','#667781','#f0f2f5'];
+  return <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,background:bg,color:col}}>{label}</span>;
+}
+
+function Templates({token,wabaId}){
+  const [templates,setTemplates]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [view,setView]=useState('list');
+  const [form,setForm]=useState({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:''});
+  const [saving,setSaving]=useState(false);
+  const [result,setResult]=useState(null);
+
+  const load=async()=>{
+    if(!token||!wabaId)return;
+    setLoading(true);
+    try{
+      const r=await fetch(`${API}/api/meta/${wabaId}/templates`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) setTemplates(d.data);
+    }catch(e){}
+    setLoading(false);
+  };
+  useEffect(()=>{load();},[token,wabaId]);
+
+  const varCount=(txt)=>{
+    const nums=[...String(txt||'').matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map(m=>Number(m[1]));
+    return new Set(nums).size;
+  };
+
+  const submit=async()=>{
+    if(!form.name.trim()||!form.bodyText.trim()){setResult({ok:false,msg:'Preencha o nome e o corpo da mensagem.'});return;}
+    setSaving(true);setResult(null);
+    try{
+      const r=await fetch(`${API}/api/meta/${wabaId}/templates`,{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify(form)});
+      const d=await r.json();
+      if(d.success){
+        setResult({ok:true,msg:'✅ Template enviado para aprovação da Meta!'});
+        setForm({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:''});
+        load();setTimeout(()=>setView('list'),1200);
+      } else setResult({ok:false,msg:'❌ '+(d.message||'Erro ao criar template.')});
+    }catch(e){setResult({ok:false,msg:'Erro: '+e.message});}
+    setSaving(false);
+  };
+
+  const remove=async(t)=>{
+    if(!confirm(`Excluir o template "${t.name}"? Isso remove também na Meta.`))return;
+    try{
+      const r=await fetch(`${API}/api/meta/${wabaId}/templates/${t.id}`,{method:'DELETE',headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) load(); else alert('❌ '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+  };
+
+  const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
+  const nVars=varCount(form.bodyText);
+
+  if(view==='create') return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <button onClick={()=>{setView('list');setResult(null);}} style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.tx} strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div><h1 style={{fontSize:20,fontWeight:700,color:C.tx}}>Novo Template</h1><p style={{fontSize:13,color:C.mt}}>A Meta precisa aprovar antes do primeiro disparo</p></div>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 380px',gap:16}}>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>📋 Identificação</h3>
+          <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:5}}>Nome do template</label>
+          <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="reativacao_30dias" style={{...inp2,marginBottom:4}}/>
+          <p style={{fontSize:11,color:C.mt,marginBottom:14}}>Somente letras minúsculas, números e underscore. Não pode ser alterado depois.</p>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Categoria</label>
+              <select value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))} style={inp2}>
+                <option value="MARKETING">MARKETING</option>
+                <option value="UTILITY">UTILITY</option>
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Idioma</label>
+              <select value={form.language} onChange={e=>setForm(p=>({...p,language:e.target.value}))} style={inp2}>
+                <option value="pt_BR">Português (pt_BR)</option>
+                <option value="en_US">Inglês (en_US)</option>
+                <option value="es_ES">Espanhol (es_ES)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:8,fontSize:15}}>💬 Corpo da mensagem</h3>
+          <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:8}}>
+            {[1,2,3,4,5].map(n=><button key={n} onClick={()=>setForm(p=>({...p,bodyText:p.bodyText+'{{'+n+'}}'}))}
+              style={{fontSize:11,padding:'3px 8px',borderRadius:20,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,cursor:'pointer'}}>{'{{'+n+'}}'}</button>)}
+          </div>
+          <textarea value={form.bodyText} onChange={e=>setForm(p=>({...p,bodyText:e.target.value}))} rows={6}
+            placeholder="Oi {{1}}! Sentimos sua falta 🍕 Já faz {{2}} dias desde seu último pedido. Que tal pedir hoje com desconto?"
+            style={{...inp2,resize:'vertical'}} maxLength={1024}/>
+          <p style={{fontSize:11,color:C.mt,marginTop:6}}>
+            {form.bodyText.length}/1024 · {nVars} variável(is) · use variáveis <b>posicionais</b> sequenciais a partir de {'{{1}}'}.
+          </p>
+          <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',margin:'14px 0 5px'}}>Rodapé (opcional)</label>
+          <input value={form.footerText} onChange={e=>setForm(p=>({...p,footerText:e.target.value}))} placeholder="Responda SAIR para não receber mais" style={inp2} maxLength={60}/>
+        </div>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>👁 Pré-visualização</h3>
+          <div style={{background:C.bg,borderRadius:12,padding:12}}>
+            <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:'8px 12px',maxWidth:'90%',marginLeft:'auto'}}>
+              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{form.bodyText||'Sua mensagem aparece aqui…'}</p>
+              {form.footerText&&<p style={{fontSize:11,color:C.mt,marginTop:6}}>{form.footerText}</p>}
+            </div>
+          </div>
+        </div>
+        <div style={{background:'#FFF8E1',borderRadius:16,padding:16,border:'1px solid #ECB22E40'}}>
+          <p style={{fontSize:12,color:'#7A5B00',lineHeight:1.5}}>
+            ⚠️ A Meta leva de alguns minutos a 24h para aprovar. O corpo <b>não pode começar nem terminar</b> com uma variável.
+          </p>
+        </div>
+        {result&&<div style={{padding:'10px 14px',borderRadius:10,background:result.ok?'#25D36618':'#FF525218',color:result.ok?'#075E54':'#FF5252',fontSize:12,fontWeight:500}}>{result.msg}</div>}
+        <button onClick={submit} disabled={saving} style={{padding:'14px',borderRadius:14,border:'none',background:C.p,color:'#fff',fontWeight:700,fontSize:14,opacity:saving?.6:1,boxShadow:'0 4px 14px rgba(37,211,102,.3)'}}>
+          {saving?'Enviando...':'📤 Enviar para aprovação'}
+        </button>
+      </div>
+    </div>
+  </div>;
+
+  return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>Templates</h1><p style={{fontSize:13,color:C.mt,marginTop:2}}>Mensagens aprovadas pela Meta para disparo em massa</p></div>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={load} style={{padding:'9px 16px',borderRadius:12,border:`1px solid ${C.br}`,background:'#fff',color:C.tx,fontWeight:600,fontSize:13}}>↻ Atualizar status</button>
+        <button onClick={()=>setView('create')} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Novo template
+        </button>
+      </div>
+    </div>
+    {loading?<div style={{textAlign:'center',padding:60,color:C.mt}}>Carregando...</div>:
+     templates.length===0?<div style={{background:'#fff',borderRadius:18,padding:60,textAlign:'center',border:`1px solid ${C.br}`}}>
+       <div style={{width:60,height:60,borderRadius:18,background:C.p+'15',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+       </div>
+       <h3 style={{fontWeight:700,color:C.tx,marginBottom:6}}>Nenhum template ainda</h3>
+       <p style={{fontSize:13,color:C.mt,marginBottom:20}}>Você precisa de um template aprovado para disparar campanhas.</p>
+       <button onClick={()=>setView('create')} style={{padding:'10px 24px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>Criar template</button>
+     </div>:
+     <div style={{display:'flex',flexDirection:'column',gap:12}}>
+       {templates.map(t=><div key={t.id} style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:16}}>
+         <div style={{width:44,height:44,borderRadius:12,background:C.p+'15',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+         </div>
+         <div style={{flex:1,minWidth:0}}>
+           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+             <p style={{fontWeight:600,fontSize:14,color:C.tx}}>{t.name}</p>
+             <TplBadge status={t.status}/>
+           </div>
+           <p style={{fontSize:12,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',maxWidth:460}}>{t.bodyText||'—'}</p>
+           <div style={{display:'flex',gap:16,marginTop:6}}>
+             <span style={{fontSize:12,color:C.mt}}>{t.category}</span>
+             <span style={{fontSize:12,color:C.mt}}>{t.language}</span>
+             <span style={{fontSize:12,color:C.mt}}>🔢 {t.variableCount} variável(is)</span>
+           </div>
+           {t.status==='REJECTED'&&t.rejectedReason&&<p style={{fontSize:12,color:'#FF5252',marginTop:6}}>Motivo: {t.rejectedReason}</p>}
+         </div>
+         <button onClick={()=>remove(t)} title="Excluir" style={{padding:'8px 10px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',flexShrink:0}}>
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF5252" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+         </button>
+       </div>)}
+     </div>}
+  </div>;
+}
+
 /* ══════════════════════════ CAMPANHAS ══════════════════════════ */
 function Campaigns({token,wabaId}){
   const [campaigns,setCampaigns]=useState([]);
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
+  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
+  const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
   const [sendingTest,setSendingTest]=useState(false);
@@ -1304,7 +1487,26 @@ function Campaigns({token,wabaId}){
     setLoading(false);
   };
 
-  useEffect(()=>{load();},[token,wabaId]);
+  const loadTemplates=async()=>{
+    if(!token||!wabaId)return;
+    try{
+      const r=await fetch(`${API}/api/meta/${wabaId}/templates`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) setTemplates(d.data.filter(t=>t.status==='APPROVED'));
+    }catch(e){}
+  };
+
+  useEffect(()=>{load();loadTemplates();},[token,wabaId]);
+
+  const selectedTpl=templates.find(t=>t.id===form.templateId)||null;
+
+  const pickTemplate=(id)=>{
+    const tpl=templates.find(t=>t.id===id);
+    setForm(p=>({...p,templateId:id,templateParams:Array(tpl?.variableCount||0).fill('nome')}));
+  };
+  const setParam=(idx,token)=>setForm(p=>{
+    const next=[...p.templateParams];next[idx]=token;return {...p,templateParams:next};
+  });
 
   const doPreview=async()=>{
     try{
@@ -1322,7 +1524,7 @@ function Campaigns({token,wabaId}){
   };
 
   const saveCampaign=async()=>{
-    if(!form.name||!form.message){alert('Preencha nome e mensagem!');return;}
+    if(!form.name||!form.templateId){alert('Preencha o nome e selecione um template aprovado!');return;}
     setSaving(true);
     try{
       const sf={};
@@ -1332,22 +1534,22 @@ function Campaigns({token,wabaId}){
       if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify({name:form.name,message:form.message,segmentFilter:sf})});
+        body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',message:'',segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
   };
 
   const sendTest=async()=>{
-    if(!form.message){setTestResult({ok:false,msg:'Escreva a mensagem antes de testar!'});return;}
+    if(!form.templateId){setTestResult({ok:false,msg:'Selecione um template antes de testar!'});return;}
     if(!testPhone.trim()){setTestResult({ok:false,msg:'Digite o numero para o teste!'});return;}
     setSendingTest(true);setTestResult(null);
     try{
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/test-send`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify({phone:testPhone.replace(/\D/g,''),message:form.message})});
+        body:JSON.stringify({phone:testPhone.replace(/\D/g,''),templateId:form.templateId,templateParams:form.templateParams})});
       const d=await r.json();
       if(d.success) setTestResult({ok:true,msg:'\u2705 Mensagem de teste enviada para '+testPhone+'!'});
       else setTestResult({ok:false,msg:'\u274c Erro: '+d.message});
@@ -1374,8 +1576,24 @@ function Campaigns({token,wabaId}){
     return <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,background:bg,color:col}}>{label}</span>;
   };
 
-  const VARS=['{{nome}}','{{produto_favorito}}','{{dias_sem_comprar}}','{{total_pedidos}}','{{ticket_medio}}'];
+  // Tokens do CRM que podem alimentar cada variável posicional do template
+  const TOKENS=[
+    {v:'nome',             label:'Nome do cliente',  sample:'João'},
+    {v:'produto_favorito', label:'Produto favorito', sample:'Pizza de Frango'},
+    {v:'dias_sem_comprar', label:'Dias sem comprar', sample:'8'},
+    {v:'total_pedidos',    label:'Total de pedidos', sample:'12'},
+    {v:'ticket_medio',     label:'Ticket médio',     sample:'R$ 45.00'},
+  ];
   const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
+
+  // Renderiza o corpo do template ({{1}}, {{2}}…) com valores de exemplo
+  const renderPreview=()=>{
+    if(!selectedTpl) return '';
+    return String(selectedTpl.bodyText||'').replace(/\{\{\s*(\d+)\s*\}\}/g,(m,n)=>{
+      const tok=form.templateParams[Number(n)-1];
+      return TOKENS.find(t=>t.v===tok)?.sample ?? m;
+    });
+  };
 
   if(view==='create') return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
     <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
@@ -1391,15 +1609,30 @@ function Campaigns({token,wabaId}){
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>📋 Informações</h3>
           <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:5}}>Nome da campanha</label>
           <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Ex: Clientes inativos - Abril" style={{...inp2,marginBottom:14}}/>
-          <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:5}}>Mensagem</label>
-          <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:8}}>
-            {VARS.map(v=><button key={v} onClick={()=>setForm(p=>({...p,message:p.message+v}))}
-              style={{fontSize:11,padding:'3px 8px',borderRadius:20,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,cursor:'pointer'}}>{v}</button>)}
-          </div>
-          <textarea value={form.message} onChange={e=>setForm(p=>({...p,message:e.target.value}))} rows={5}
-            placeholder="Olá {{nome}}! 🍕 Sentimos sua falta... Faz {{dias_sem_comprar}} dias desde seu último pedido. Que tal um desconto especial hoje?"
-            style={{...inp2,resize:'vertical'}}/>
-          <p style={{fontSize:11,color:C.mt,marginTop:6}}>Use as variáveis acima para personalizar cada mensagem automaticamente.</p>
+          <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:5}}>Template aprovado</label>
+          {templates.length===0
+            ? <div style={{padding:'12px 14px',borderRadius:10,background:'#FFF8E1',border:'1px solid #ECB22E40',fontSize:12,color:'#7A5B00',lineHeight:1.5}}>
+                Nenhum template aprovado ainda. Vá em <b>Templates</b>, crie um e aguarde a aprovação da Meta — o disparo em massa só funciona com template.
+              </div>
+            : <>
+              <select value={form.templateId} onChange={e=>pickTemplate(e.target.value)} style={inp2}>
+                <option value="">Selecione um template…</option>
+                {templates.map(t=><option key={t.id} value={t.id}>{t.name} ({t.variableCount} var.)</option>)}
+              </select>
+              {selectedTpl&&<div style={{marginTop:12,padding:'12px 14px',borderRadius:10,background:C.bg}}>
+                <p style={{fontSize:12,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{selectedTpl.bodyText}</p>
+              </div>}
+              {selectedTpl&&selectedTpl.variableCount>0&&<div style={{marginTop:14}}>
+                <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',marginBottom:6}}>Mapeamento das variáveis</label>
+                {Array.from({length:selectedTpl.variableCount},(_,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                  <span style={{fontSize:12,fontWeight:700,color:C.dk,minWidth:38}}>{'{{'+(i+1)+'}}'}</span>
+                  <select value={form.templateParams[i]||''} onChange={e=>setParam(i,e.target.value)} style={{...inp2,flex:1}}>
+                    {TOKENS.map(t=><option key={t.v} value={t.v}>{t.label}</option>)}
+                  </select>
+                </div>)}
+                <p style={{fontSize:11,color:C.mt,marginTop:2}}>Cada posição do template recebe um dado do cliente no momento do envio.</p>
+              </div>}
+            </>}
         </div>
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>🎯 Segmentação</h3>
@@ -1440,16 +1673,16 @@ function Campaigns({token,wabaId}){
             </div>
           </div>)}</>}
         </div>}
-        {form.message&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+        {selectedTpl&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>💬 Preview da mensagem</h3>
           <div style={{background:C.bg,borderRadius:12,padding:12}}>
             <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:'8px 12px',maxWidth:'85%',marginLeft:'auto'}}>
-              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{form.message.replace(/\{\{nome\}\}/g,'João').replace(/\{\{produto_favorito\}\}/g,'Pizza de Frango').replace(/\{\{dias_sem_comprar\}\}/g,'8').replace(/\{\{total_pedidos\}\}/g,'12').replace(/\{\{ticket_medio\}\}/g,'R$ 45.00')}</p>
+              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{renderPreview()}</p>
               <p style={{fontSize:10,color:C.mt,textAlign:'right',marginTop:4}}>Pré-visualização</p>
             </div>
           </div>
         </div>}
-        {form.message&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+        {selectedTpl&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:8,fontSize:15}}>📱 Enviar teste</h3>
           <p style={{fontSize:12,color:C.mt,marginBottom:10}}>Teste a mensagem no seu WhatsApp antes de disparar para todos.</p>
           <input value={testPhone} onChange={e=>setTestPhone(e.target.value)} placeholder="Ex: 47997109331" type="tel"
@@ -1521,6 +1754,7 @@ const NAV=[
   {id:'conversations',label:'Conversas',            icon:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"},
   {id:'crm',          label:'CRM',                 icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
   {id:'campaigns',    label:'Campanhas',            icon:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"},
+  {id:'templates',    label:'Templates',            icon:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
   {id:'contacts',     label:'Contatos',             icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
   {id:'connect',      label:'Conectar WhatsApp',    icon:"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"},
   {id:'integracoes',  label:'Integrações',          icon:"M4 6h16M4 10h16M4 14h16M4 18h16"},
@@ -1577,6 +1811,7 @@ function Layout({user,token,onLogout}){
         {page==='conversations' &&<Conversations token={token}/>}
         {page==='crm'           &&<CRM token={token} wabaId={wabaId}/>}
         {page==='campaigns'     &&<Campaigns token={token} wabaId={wabaId}/>}
+        {page==='templates'     &&<Templates token={token} wabaId={wabaId}/>}
         {page==='contacts'      &&<Contacts/>}
         {page==='connect'       &&<Connect token={token}/>}
         {page==='integracoes'   &&<Integracoes token={token}/>}

@@ -28,7 +28,8 @@ router.get('/:wabaAccountId/campaigns', listCampaigns);
 router.post('/:wabaAccountId/campaigns', [
   param('wabaAccountId').isUUID(),
   body('name').notEmpty().withMessage('Nome da campanha obrigatório.'),
-  body('message').notEmpty().withMessage('Mensagem obrigatória.'),
+  // Aceita template (fluxo novo) ou mensagem livre (legado) — validação fina no controller
+  body().custom((b) => !!(b.templateId || b.message)).withMessage('Selecione um template ou informe a mensagem.'),
 ], validate, createCampaign);
 router.post('/:wabaAccountId/campaigns/preview', previewSegment);
 router.get('/:wabaAccountId/campaigns/:campaignId', getCampaign);

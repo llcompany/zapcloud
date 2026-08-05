@@ -1,6 +1,46 @@
 
 const axios = require('axios');
 const prisma = require('../utils/prisma');
+const { buildBodyParameters, renderTemplateBody } = require('../utils/templateVars');
+
+const META_BASE_URL = process.env.META_BASE_URL || 'https://graph.facebook.com';
+const META_API_VERSION = process.env.META_API_VERSION || 'v19.0';
+
+// ─── Normalização de telefone (mesma regra do multipedidosController) ────────
+function normalizePhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.startsWith('55')) return digits;
+  if (digits.length === 11 || digits.length === 10) return '55' + digits;
+  return digits;
+}
+
+/**
+ * Monta o payload da Meta para um cliente.
+ * Com template → type:'template' (único formato aceito fora da janela de 24h).
+ * Sem template → type:'text' (legado; só funciona dentro da janela de 24h).
+ */
+function buildMetaPayload({ to, template, templateParams, customer, fallbackText }) {
+  if (template) {
+    const parameters = buildBodyParameters(templateParams, customer || {});
+    return {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: template.name,
+        language: { code: template.language },
+        components: parameters.length ? [{ type: 'body', parameters }] : [],
+      },
+    };
+  }
+  return { messaging_product: 'whatsapp', to, type: 'text', text: { body: fallbackText } };
+}
+
+function metaError(error) {
+  return error?.response?.data?.error?.error_user_msg
+    || error?.response?.data?.error?.message
+    || error.message;
+}
 
 // ─── Substituir variáveis na mensagem ────────────────────────────────────────
 function buildMessage(template, customer) {
@@ -54,14 +94,44 @@ const listCampaigns = async (req, res) => {
 const createCampaign = async (req, res) => {
   try {
     const { wabaAccountId } = req.params;
-    const { name, message, segmentFilter } = req.body;
+    const { name, message, segmentFilter, templateId, templateParams } = req.body;
+
+    let template = null;
+    let params = Array.isArray(templateParams) ? templateParams : [];
+
+    if (templateId) {
+      template = await prisma.template.findFirst({ where: { id: templateId, wabaAccountId } });
+      if (!template) {
+        return res.status(404).json({ success: false, message: 'Template não encontrado nesta conta.' });
+      }
+      if (params.length !== template.variableCount) {
+        return res.status(400).json({
+          success: false,
+          message: `O template "${template.name}" tem ${template.variableCount} variável(is); foram mapeadas ${params.length}.`,
+        });
+      }
+    } else {
+      params = [];
+      if (!message) {
+        return res.status(400).json({ success: false, message: 'Escolha um template ou informe a mensagem.' });
+      }
+    }
 
     // Conta quantos clientes serão impactados
     const where = buildFilter(wabaAccountId, segmentFilter);
     const totalRecipients = await prisma.crmCustomer.count({ where });
 
     const campaign = await prisma.campaign.create({
-      data: { wabaAccountId, name, message, segmentFilter: segmentFilter || {}, totalRecipients },
+      data: {
+        wabaAccountId,
+        name,
+        // Com template, `message` guarda o corpo aprovado apenas como referência/histórico
+        message: message || template?.bodyText || '',
+        templateId: template?.id || null,
+        templateParams: params,
+        segmentFilter: segmentFilter || {},
+        totalRecipients,
+      },
     });
 
     res.status(201).json({ success: true, data: campaign });
@@ -93,12 +163,31 @@ const executeCampaign = async (req, res) => {
   try {
     const { wabaAccountId, campaignId } = req.params;
 
-    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, wabaAccountId },
+      include: { template: true },
+    });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
     if (campaign.status === 'RUNNING') return res.status(400).json({ success: false, message: 'Campanha já está em execução.' });
 
     const wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: wabaAccountId } });
     if (!wabaAccount) return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
+
+    // Disparo em massa atinge clientes fora da janela de 24h — a Meta só aceita
+    // template aprovado nesse caso (erro 131047 para texto livre).
+    const template = campaign.template;
+    if (!template) {
+      return res.status(400).json({
+        success: false,
+        message: 'Esta campanha não tem template. Selecione um template aprovado — a Meta bloqueia texto livre para clientes fora da janela de 24h.',
+      });
+    }
+    if (template.status !== 'APPROVED') {
+      return res.status(400).json({
+        success: false,
+        message: `O template "${template.name}" está com status ${template.status}. Só é possível disparar com template APPROVED.`,
+      });
+    }
 
     // Busca clientes do segmento
     const where = buildFilter(wabaAccountId, campaign.segmentFilter);
@@ -112,9 +201,12 @@ const executeCampaign = async (req, res) => {
 
     // Processa envios em background
     let sent = 0, failed = 0;
+    const params = Array.isArray(campaign.templateParams) ? campaign.templateParams : [];
+
     for (const customer of customers) {
       try {
-        const finalMessage = buildMessage(campaign.message, customer);
+        // Texto só para registro/auditoria — o envio real vai pelos `parameters`
+        const finalMessage = renderTemplateBody(template.bodyText, params, customer);
 
         // Cria registro de execução
         const execution = await prisma.campaignExecution.create({
@@ -122,10 +214,10 @@ const executeCampaign = async (req, res) => {
         });
 
         // Envia via Meta API
-        const phone = customer.phone.replace(/\D/g, '');
+        const phone = normalizePhone(customer.phone);
         const response = await axios.post(
-          `${process.env.META_BASE_URL}/${process.env.META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
-          { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: finalMessage } },
+          `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
+          buildMetaPayload({ to: phone, template, templateParams: params, customer }),
           { headers: { Authorization: `Bearer ${wabaAccount.accessToken}`, 'Content-Type': 'application/json' } }
         );
 
@@ -137,9 +229,10 @@ const executeCampaign = async (req, res) => {
         sent++;
       } catch (err) {
         failed++;
+        console.error('[Campaign] Falha ao enviar para', customer.phone, '→', metaError(err));
         await prisma.campaignExecution.updateMany({
           where: { campaignId, crmCustomerId: customer.id },
-          data: { status: 'FAILED', failedReason: err.message },
+          data: { status: 'FAILED', failedReason: metaError(err) },
         });
       }
 
@@ -178,18 +271,29 @@ const getCampaign = async (req, res) => {
 const testSend = async (req, res) => {
   try {
     const { wabaAccountId } = req.params;
-    const { phone, message } = req.body;
+    const { phone, message, templateId, templateParams } = req.body;
 
-    if (!phone || !message) {
-      return res.status(400).json({ success: false, message: 'Telefone e mensagem são obrigatórios.' });
+    if (!phone || (!message && !templateId)) {
+      return res.status(400).json({ success: false, message: 'Telefone e template (ou mensagem) são obrigatórios.' });
     }
 
     const wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: wabaAccountId } });
     if (!wabaAccount) return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
 
+    let template = null;
+    if (templateId) {
+      template = await prisma.template.findFirst({ where: { id: templateId, wabaAccountId } });
+      if (!template) return res.status(404).json({ success: false, message: 'Template não encontrado nesta conta.' });
+      if (template.status !== 'APPROVED') {
+        return res.status(400).json({
+          success: false,
+          message: `Template com status ${template.status}. Aguarde a aprovação da Meta para testar.`,
+        });
+      }
+    }
+
     // Busca dados do cliente pelo telefone para substituir variáveis
-    const digits = phone.replace(/\D/g, '');
-    const normalized = digits.startsWith('55') ? digits : '55' + digits;
+    const normalized = normalizePhone(phone);
     const customer = await prisma.crmCustomer.findFirst({
       where: { wabaAccountId, phone: normalized },
     }) || {
@@ -200,11 +304,14 @@ const testSend = async (req, res) => {
       averageTicket: 0,
     };
 
-    const finalMessage = buildMessage(message, customer);
+    const params = Array.isArray(templateParams) ? templateParams : [];
+    const finalMessage = template
+      ? renderTemplateBody(template.bodyText, params, customer)
+      : buildMessage(message, customer);
 
     const response = await axios.post(
-      `${process.env.META_BASE_URL}/${process.env.META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
-      { messaging_product: 'whatsapp', to: normalized, type: 'text', text: { body: finalMessage } },
+      `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
+      buildMetaPayload({ to: normalized, template, templateParams: params, customer, fallbackText: finalMessage }),
       { headers: { Authorization: `Bearer ${wabaAccount.accessToken}`, 'Content-Type': 'application/json' } }
     );
 
@@ -213,7 +320,7 @@ const testSend = async (req, res) => {
     res.json({ success: true, message: 'Mensagem de teste enviada!', data: { phone: normalized, finalMessage, waMessageId } });
   } catch (err) {
     console.error('[Campaign] Erro no envio de teste:', err?.response?.data || err.message);
-    res.status(500).json({ success: false, message: err?.response?.data?.error?.message || err.message });
+    res.status(500).json({ success: false, message: metaError(err) });
   }
 };
 

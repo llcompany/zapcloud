@@ -38,6 +38,26 @@ function metaError(error) {
     || error.message;
 }
 
+/** Valida o custo por conversa. Vazio vira null (sem custo definido). */
+function parseCost(raw) {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, value: null };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, message: 'Custo por conversa inválido.' };
+  return { ok: true, value: n };
+}
+
+/** Valida a URL de destino do link rastreado. Vazio vira null. */
+function parseDestination(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return { ok: true, value: null };
+  try {
+    const parsed = new URL(String(raw).trim());
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('protocolo');
+    return { ok: true, value: parsed.toString() };
+  } catch {
+    return { ok: false, message: 'URL de destino inválida. Use http:// ou https://.' };
+  }
+}
+
 // ─── Listar templates (banco + sincroniza status na Meta) ────────────────────
 const listTemplates = async (req, res) => {
   try {
@@ -136,24 +156,13 @@ const createTemplate = async (req, res) => {
       });
     }
 
-    let cost = null;
-    if (costPerConversation !== undefined && costPerConversation !== null && costPerConversation !== '') {
-      cost = Number(costPerConversation);
-      if (!Number.isFinite(cost) || cost < 0) {
-        return res.status(400).json({ success: false, message: 'Custo por conversa inválido.' });
-      }
-    }
+    const parsedCost = parseCost(costPerConversation);
+    if (!parsedCost.ok) return res.status(400).json({ success: false, message: parsedCost.message });
+    const cost = parsedCost.value;
 
-    let destination = null;
-    if (linkUrl) {
-      try {
-        const parsed = new URL(String(linkUrl).trim());
-        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('protocolo');
-        destination = parsed.toString();
-      } catch {
-        return res.status(400).json({ success: false, message: 'URL de destino inválida. Use http:// ou https://.' });
-      }
-    }
+    const parsedLink = parseDestination(linkUrl);
+    if (!parsedLink.ok) return res.status(400).json({ success: false, message: parsedLink.message });
+    const destination = parsedLink.value;
 
     const wabaAccount = await getOwnedWabaAccount(wabaAccountId, req.user);
     if (!wabaAccount) {
@@ -215,6 +224,53 @@ const createTemplate = async (req, res) => {
   }
 };
 
+// ─── Atualizar custo e link (apenas no banco) ────────────────────────────────
+// O conteúdo aprovado do template é imutável na Meta, então esta rota não chama
+// a Graph API: mexe só nos campos operacionais controlados pelo ZapCloud.
+const updateTemplate = async (req, res) => {
+  try {
+    const { wabaAccountId, id } = req.params;
+    const { costPerConversation, linkUrl } = req.body;
+
+    const wabaAccount = await getOwnedWabaAccount(wabaAccountId, req.user);
+    if (!wabaAccount) {
+      return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
+    }
+
+    const template = await prisma.template.findFirst({ where: { id, wabaAccountId } });
+    if (!template) {
+      return res.status(404).json({ success: false, message: 'Template não encontrado.' });
+    }
+
+    // Só altera o que veio no corpo — campo ausente fica como está
+    const data = {};
+
+    if (costPerConversation !== undefined) {
+      const parsed = parseCost(costPerConversation);
+      if (!parsed.ok) return res.status(400).json({ success: false, message: parsed.message });
+      data.costPerConversation = parsed.value;
+    }
+
+    if (linkUrl !== undefined) {
+      const parsed = parseDestination(linkUrl);
+      if (!parsed.ok) return res.status(400).json({ success: false, message: parsed.message });
+      data.linkUrl = parsed.value;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ success: false, message: 'Nada para atualizar. Envie costPerConversation e/ou linkUrl.' });
+    }
+
+    const updated = await prisma.template.update({ where: { id }, data });
+
+    console.log('[Template] Atualizado:', template.name, JSON.stringify(data));
+    res.json({ success: true, message: 'Template atualizado.', data: updated });
+  } catch (err) {
+    console.error('[Template] updateTemplate:', err);
+    res.status(500).json({ success: false, message: 'Erro ao atualizar template.', error: err.message });
+  }
+};
+
 // ─── Deletar template (Meta + banco) ─────────────────────────────────────────
 const deleteTemplate = async (req, res) => {
   try {
@@ -263,4 +319,4 @@ const deleteTemplate = async (req, res) => {
   }
 };
 
-module.exports = { listTemplates, createTemplate, deleteTemplate };
+module.exports = { listTemplates, createTemplate, updateTemplate, deleteTemplate };

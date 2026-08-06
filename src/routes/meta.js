@@ -12,6 +12,7 @@ const {
 const {
   listTemplates,
   createTemplate,
+  updateTemplate,
   deleteTemplate,
 } = require('../controllers/templateController');
 const { authenticate } = require('../middlewares/auth');
@@ -53,6 +54,14 @@ router.post(
   ],
   validate,
   createTemplate
+);
+
+// PATCH /api/meta/:wabaAccountId/templates/:id — atualiza custo e link (só no banco)
+router.patch(
+  '/:wabaAccountId/templates/:id',
+  [param('wabaAccountId').isUUID(), param('id').isUUID()],
+  validate,
+  updateTemplate
 );
 
 // DELETE /api/meta/:wabaAccountId/templates/:id — remove na Meta e no banco

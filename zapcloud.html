@@ -1291,6 +1291,55 @@ function TplBadge({status}){
   return <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,background:bg,color:col}}>{label}</span>;
 }
 
+function TemplateEditModal({template,onClose,onSave,saving,error}){
+  const [cost,setCost]=useState(template.costPerConversation!=null?String(template.costPerConversation):'');
+  const [link,setLink]=useState(template.linkUrl||'');
+
+  useEffect(()=>{
+    const h=e=>{if(e.key==='Escape')onClose();};
+    window.addEventListener('keydown',h);
+    return ()=>window.removeEventListener('keydown',h);
+  },[onClose]);
+
+  const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
+
+  return <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,padding:20}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:20,padding:24,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,.25)'}}>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:18}}>
+        <div style={{minWidth:0}}>
+          <h2 style={{fontSize:17,fontWeight:700,color:C.tx,marginBottom:3}}>Editar template</h2>
+          <p style={{fontSize:12,color:C.mt}}>{template.name}</p>
+        </div>
+        <button onClick={onClose} title="Fechar" style={{width:30,height:30,borderRadius:9,border:`1px solid ${C.br}`,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.tx} strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div style={{background:C.bg,borderRadius:12,padding:12,marginBottom:16}}>
+        <p style={{fontSize:12,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{template.bodyText||'—'}</p>
+        <p style={{fontSize:11,color:C.mt,marginTop:8}}>O texto não pode ser alterado depois de aprovado pela Meta. Para mudá-lo, crie um novo template.</p>
+      </div>
+
+      <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Custo por conversa (R$)</label>
+      <input type="number" step="0.01" min="0" value={cost} onChange={e=>setCost(e.target.value)} placeholder="0.33" style={{...inp2,marginBottom:14}}/>
+
+      <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>URL de destino do link</label>
+      <input type="url" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://seurestaurante.com/promo" style={inp2}/>
+      <p style={{fontSize:11,color:C.mt,marginTop:6}}>Deixe em branco para remover o valor.</p>
+
+      {error&&<div style={{marginTop:12,padding:'9px 12px',borderRadius:9,background:'#FF525218',color:'#FF5252',fontSize:12,fontWeight:500}}>{error}</div>}
+
+      <div style={{display:'flex',gap:9,marginTop:18}}>
+        <button onClick={onClose} style={{flex:1,padding:'11px',borderRadius:12,border:`1px solid ${C.br}`,background:'#fff',color:C.tx,fontWeight:600,fontSize:13}}>Cancelar</button>
+        <button onClick={()=>onSave({costPerConversation:cost,linkUrl:link})} disabled={saving}
+          style={{flex:1,padding:'11px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:700,fontSize:13,opacity:saving?.6:1}}>
+          {saving?'Salvando...':'Salvar'}
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
 function Templates({token,wabaId}){
   const [templates,setTemplates]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -1298,6 +1347,9 @@ function Templates({token,wabaId}){
   const [form,setForm]=useState({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:'',costPerConversation:'',linkUrl:''});
   const [saving,setSaving]=useState(false);
   const [result,setResult]=useState(null);
+  const [editing,setEditing]=useState(null);
+  const [savingEdit,setSavingEdit]=useState(false);
+  const [editError,setEditError]=useState('');
 
   const load=async()=>{
     if(!token||!wabaId)return;
@@ -1331,6 +1383,19 @@ function Templates({token,wabaId}){
       } else setResult({ok:false,msg:'❌ '+(d.message||'Erro ao criar template.')});
     }catch(e){setResult({ok:false,msg:'Erro: '+e.message});}
     setSaving(false);
+  };
+
+  const saveEdit=async(fields)=>{
+    setSavingEdit(true);setEditError('');
+    try{
+      const r=await fetch(`${API}/api/meta/${wabaId}/templates/${editing.id}`,{method:'PATCH',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify(fields)});
+      const d=await r.json();
+      if(d.success){setEditing(null);load();}
+      else setEditError(d.message||'Erro ao atualizar.');
+    }catch(e){setEditError('Erro: '+e.message);}
+    setSavingEdit(false);
   };
 
   const remove=async(t)=>{
@@ -1474,11 +1539,17 @@ function Templates({token,wabaId}){
            </div>
            {t.status==='REJECTED'&&t.rejectedReason&&<p style={{fontSize:12,color:'#FF5252',marginTop:6}}>Motivo: {t.rejectedReason}</p>}
          </div>
-         <button onClick={()=>remove(t)} title="Excluir" style={{padding:'8px 10px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',flexShrink:0}}>
-           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF5252" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-         </button>
+         <div style={{display:'flex',gap:8,flexShrink:0}}>
+           <button onClick={()=>{setEditing(t);setEditError('');}} title="Editar custo e link" style={{padding:'8px 10px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff'}}>
+             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.dk} strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+           </button>
+           <button onClick={()=>remove(t)} title="Excluir" style={{padding:'8px 10px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff'}}>
+             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF5252" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+           </button>
+         </div>
        </div>)}
      </div>}
+    {editing&&<TemplateEditModal template={editing} onClose={()=>setEditing(null)} onSave={saveEdit} saving={savingEdit} error={editError}/>}
   </div>;
 }
 

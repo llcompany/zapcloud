@@ -92,7 +92,10 @@ const listTemplates = async (req, res) => {
 const createTemplate = async (req, res) => {
   try {
     const { wabaAccountId } = req.params;
-    const { name, category = 'MARKETING', language = 'pt_BR', bodyText, footerText, examples } = req.body;
+    const {
+      name, category = 'MARKETING', language = 'pt_BR',
+      bodyText, footerText, examples, costPerConversation, linkUrl,
+    } = req.body;
 
     if (!name || !bodyText) {
       return res.status(400).json({ success: false, message: 'Nome e corpo da mensagem são obrigatórios.' });
@@ -131,6 +134,25 @@ const createTemplate = async (req, res) => {
         success: false,
         message: 'O corpo não pode começar nem terminar com uma variável. Adicione texto ao redor.',
       });
+    }
+
+    let cost = null;
+    if (costPerConversation !== undefined && costPerConversation !== null && costPerConversation !== '') {
+      cost = Number(costPerConversation);
+      if (!Number.isFinite(cost) || cost < 0) {
+        return res.status(400).json({ success: false, message: 'Custo por conversa inválido.' });
+      }
+    }
+
+    let destination = null;
+    if (linkUrl) {
+      try {
+        const parsed = new URL(String(linkUrl).trim());
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('protocolo');
+        destination = parsed.toString();
+      } catch {
+        return res.status(400).json({ success: false, message: 'URL de destino inválida. Use http:// ou https://.' });
+      }
     }
 
     const wabaAccount = await getOwnedWabaAccount(wabaAccountId, req.user);
@@ -180,6 +202,8 @@ const createTemplate = async (req, res) => {
         components,
         bodyText: body,
         variableCount: count,
+        costPerConversation: cost,
+        linkUrl: destination,
       },
     });
 

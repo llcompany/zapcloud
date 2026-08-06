@@ -309,8 +309,45 @@ const processStatusUpdate = async (status) => {
       where: { waMessageId },
       data: updateData,
     });
+
+    // Mensagens de campanha vivem em campaign_executions, não em messages
+    if (newStatus === 'read') {
+      await markCampaignExecutionRead(waMessageId, updateData.readAt);
+    }
   } catch (error) {
     console.error('[Webhook] processStatusUpdate:', error);
+  }
+};
+
+/**
+ * Marca a execução de campanha como lida e incrementa readCount na campanha.
+ * A Meta reenvia o mesmo status em retries, então só conta a primeira vez.
+ */
+const markCampaignExecutionRead = async (waMessageId, readAt) => {
+  try {
+    if (!waMessageId) return;
+
+    const execution = await prisma.campaignExecution.findFirst({
+      where: { waMessageId, readAt: null },
+      select: { id: true, campaignId: true },
+    });
+    if (!execution) return;
+
+    // updateMany com readAt:null garante que só um webhook concorrente vence a corrida
+    const updated = await prisma.campaignExecution.updateMany({
+      where: { id: execution.id, readAt: null },
+      data: { readAt: readAt || new Date() },
+    });
+    if (updated.count === 0) return;
+
+    await prisma.campaign.update({
+      where: { id: execution.campaignId },
+      data: { readCount: { increment: 1 } },
+    });
+
+    console.log('[Webhook] Campanha', execution.campaignId, '- leitura registrada:', waMessageId);
+  } catch (error) {
+    console.error('[Webhook] markCampaignExecutionRead:', error);
   }
 };
 

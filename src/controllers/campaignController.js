@@ -1,7 +1,12 @@
 
 const axios = require('axios');
 const prisma = require('../utils/prisma');
-const { buildBodyParameters, renderTemplateBody } = require('../utils/templateVars');
+const {
+  buildBodyParameters,
+  renderTemplateBody,
+  publicBaseUrl,
+  trackingUrlFor,
+} = require('../utils/templateVars');
 
 const META_BASE_URL = process.env.META_BASE_URL || 'https://graph.facebook.com';
 const META_API_VERSION = process.env.META_API_VERSION || 'v19.0';
@@ -19,9 +24,9 @@ function normalizePhone(phone) {
  * Com template → type:'template' (único formato aceito fora da janela de 24h).
  * Sem template → type:'text' (legado; só funciona dentro da janela de 24h).
  */
-function buildMetaPayload({ to, template, templateParams, customer, fallbackText }) {
+function buildMetaPayload({ to, template, templateParams, customer, ctx, fallbackText }) {
   if (template) {
-    const parameters = buildBodyParameters(templateParams, customer || {});
+    const parameters = buildBodyParameters(templateParams, customer || {}, ctx);
     return {
       messaging_product: 'whatsapp',
       to,
@@ -193,8 +198,31 @@ const executeCampaign = async (req, res) => {
     const where = buildFilter(wabaAccountId, campaign.segmentFilter);
     const customers = await prisma.crmCustomer.findMany({ where });
 
+    // Custo estimado a partir do preço por conversa do template
+    const unitCost = template.costPerConversation || 0;
+    const estimatedCost = unitCost ? Number((customers.length * unitCost).toFixed(2)) : null;
+
+    // Link rastreado só é possível com uma base pública configurada
+    const usesTracking = (campaign.templateParams || []).includes('link_rastreado');
+    if (usesTracking && !publicBaseUrl()) {
+      return res.status(400).json({
+        success: false,
+        message: 'A campanha usa link rastreado, mas PUBLIC_URL (ou APP_URL) não está configurada no servidor. Sem isso o link enviado ao cliente não funcionaria.',
+      });
+    }
+
     // Atualiza status para RUNNING
-    await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'RUNNING', startedAt: new Date(), totalRecipients: customers.length } });
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        status: 'RUNNING',
+        startedAt: new Date(),
+        totalRecipients: customers.length,
+        estimatedCost,
+        // Zera contadores para que um redisparo não some com a execução anterior
+        sentCount: 0, failedCount: 0, readCount: 0, clickCount: 0, totalCost: null,
+      },
+    });
 
     // Responde imediatamente e processa em background
     res.json({ success: true, message: `Campanha iniciada! ${customers.length} clientes serão contatados.`, data: { total: customers.length } });
@@ -205,26 +233,27 @@ const executeCampaign = async (req, res) => {
 
     for (const customer of customers) {
       try {
-        // Texto só para registro/auditoria — o envio real vai pelos `parameters`
-        const finalMessage = renderTemplateBody(template.bodyText, params, customer);
-
-        // Cria registro de execução
+        // A execução é criada antes do envio porque o link rastreado precisa do id dela
         const execution = await prisma.campaignExecution.create({
-          data: { campaignId, crmCustomerId: customer.id, message: finalMessage },
+          data: { campaignId, crmCustomerId: customer.id, message: '' },
         });
+        const ctx = { trackingUrl: trackingUrlFor(execution.id) };
+
+        // Texto só para registro/auditoria — o envio real vai pelos `parameters`
+        const finalMessage = renderTemplateBody(template.bodyText, params, customer, ctx);
 
         // Envia via Meta API
         const phone = normalizePhone(customer.phone);
         const response = await axios.post(
           `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
-          buildMetaPayload({ to: phone, template, templateParams: params, customer }),
+          buildMetaPayload({ to: phone, template, templateParams: params, customer, ctx }),
           { headers: { Authorization: `Bearer ${wabaAccount.accessToken}`, 'Content-Type': 'application/json' } }
         );
 
         const waMessageId = response.data?.messages?.[0]?.id;
         await prisma.campaignExecution.update({
           where: { id: execution.id },
-          data: { status: 'SENT', sentAt: new Date(), waMessageId },
+          data: { status: 'SENT', sentAt: new Date(), waMessageId, message: finalMessage },
         });
         sent++;
       } catch (err) {
@@ -242,7 +271,14 @@ const executeCampaign = async (req, res) => {
 
     await prisma.campaign.update({
       where: { id: campaignId },
-      data: { status: 'COMPLETED', completedAt: new Date(), sentCount: sent, failedCount: failed },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        sentCount: sent,
+        failedCount: failed,
+        // Custo real cobra só o que a Meta aceitou; falhas não geram conversa
+        totalCost: unitCost ? Number((sent * unitCost).toFixed(2)) : null,
+      },
     });
 
   } catch (err) {
@@ -257,7 +293,10 @@ const getCampaign = async (req, res) => {
     const { wabaAccountId, campaignId } = req.params;
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, wabaAccountId },
-      include: { executions: { include: { crmCustomer: true }, take: 20, orderBy: { createdAt: 'desc' } } },
+      include: {
+        template: { select: { name: true, costPerConversation: true, linkUrl: true } },
+        executions: { include: { crmCustomer: true }, take: 20, orderBy: { createdAt: 'desc' } },
+      },
     });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
     res.json({ success: true, data: campaign });
@@ -266,6 +305,52 @@ const getCampaign = async (req, res) => {
   }
 };
 
+
+// ─── Rastreamento de clique (rota pública, acessada pelo cliente no WhatsApp) ─
+/** Só redireciona para http/https, para a rota não virar um open redirect. */
+function safeRedirect(url) {
+  try {
+    const parsed = new URL(String(url));
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+const trackClick = async (req, res) => {
+  const fallback = safeRedirect(publicBaseUrl()) || '/';
+  try {
+    const { executionId } = req.params;
+
+    const execution = await prisma.campaignExecution.findUnique({
+      where: { id: executionId },
+      select: { id: true, clicked: true, campaignId: true, campaign: { select: { template: { select: { linkUrl: true } } } } },
+    });
+
+    // Link inválido/expirado: manda para a home em vez de mostrar erro ao cliente
+    if (!execution) return res.redirect(302, fallback);
+
+    // Conta apenas o primeiro clique de cada destinatário
+    if (!execution.clicked) {
+      const updated = await prisma.campaignExecution.updateMany({
+        where: { id: execution.id, clicked: false },
+        data: { clicked: true },
+      });
+      if (updated.count > 0) {
+        await prisma.campaign.update({
+          where: { id: execution.campaignId },
+          data: { clickCount: { increment: 1 } },
+        });
+      }
+    }
+
+    const destination = safeRedirect(execution.campaign?.template?.linkUrl);
+    return res.redirect(302, destination || fallback);
+  } catch (err) {
+    console.error('[Campaign] trackClick:', err);
+    return res.redirect(302, fallback);
+  }
+};
 
 // ─── Envio de teste ───────────────────────────────────────────────────────────
 const testSend = async (req, res) => {
@@ -324,4 +409,4 @@ const testSend = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend };
+module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick };

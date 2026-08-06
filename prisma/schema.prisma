@@ -153,6 +153,8 @@ model Template {
   bodyText        String?        // espelho de components[BODY].text - corpo com {{1}}, {{2}} etc.
   variableCount   Int            @default(0) // quantas variáveis posicionais o corpo tem
   rejectedReason  String?        // motivo devolvido pela Meta quando REJECTED
+  costPerConversation Float?     // custo cobrado pela Meta por conversa iniciada (ex: 0.33)
+  linkUrl         String?        // destino final do link rastreado (token link_rastreado)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -237,7 +239,11 @@ model Campaign {
   totalRecipients Int            @default(0)
   sentCount       Int            @default(0)
   deliveredCount  Int            @default(0)
+  readCount       Int            @default(0) // alimentado pelo webhook (status "read")
+  clickCount      Int            @default(0) // alimentado pela rota de rastreamento /api/campaigns/r/:id
   failedCount     Int            @default(0)
+  estimatedCost   Float?         // totalRecipients x costPerConversation, gravado no disparo
+  totalCost       Float?         // sentCount x costPerConversation, gravado ao concluir
   startedAt       DateTime?
   completedAt     DateTime?
   createdAt       DateTime       @default(now())
@@ -271,6 +277,8 @@ model CampaignExecution {
   waMessageId   String?
   sentAt        DateTime?
   deliveredAt   DateTime?
+  readAt        DateTime?       // preenchido pelo webhook quando a Meta reporta "read"
+  clicked       Boolean         @default(false)
   failedReason  String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -279,6 +287,8 @@ model CampaignExecution {
   campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   crmCustomer CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
 
+  // O webhook busca a execução por waMessageId a cada status recebido
+  @@index([waMessageId])
   @@map("campaign_executions")
 }
 

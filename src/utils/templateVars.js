@@ -18,9 +18,26 @@ const TOKENS = {
       : (c.daysSinceOrder || 0),
   total_pedidos: (c) => c.totalOrders || 0,
   ticket_medio: (c) => `R$ ${Number(c.averageTicket || 0).toFixed(2)}`,
+  // Link único por envio: passa pela rota de rastreamento e redireciona para
+  // template.linkUrl. Depende do ctx.trackingUrl montado no executeCampaign.
+  link_rastreado: (c, ctx) => ctx?.trackingUrl || '',
 };
 
 const TOKEN_NAMES = Object.keys(TOKENS);
+
+/** Base pública usada para montar links de rastreamento clicáveis pelo cliente. */
+function publicBaseUrl() {
+  const fromEnv = process.env.PUBLIC_URL || process.env.APP_URL;
+  if (fromEnv) return String(fromEnv).replace(/\/+$/, '');
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  return '';
+}
+
+/** URL de rastreamento de uma execução; string vazia se não houver base pública. */
+function trackingUrlFor(executionId) {
+  const base = publicBaseUrl();
+  return base ? `${base}/api/campaigns/r/${executionId}` : '';
+}
 
 /**
  * A Meta rejeita parâmetros de template contendo quebra de linha, tab ou
@@ -33,12 +50,15 @@ function sanitizeParam(value) {
   return clean || '-';
 }
 
-/** Resolve um token do CRM para o cliente informado. */
-function resolveToken(token, customer) {
+/**
+ * Resolve um token do CRM para o cliente informado.
+ * @param {object} [ctx] contexto do envio (ex: { trackingUrl })
+ */
+function resolveToken(token, customer, ctx) {
   const fn = TOKENS[token];
   if (!fn) return '-';
   try {
-    return sanitizeParam(fn(customer));
+    return sanitizeParam(fn(customer, ctx));
   } catch {
     return '-';
   }
@@ -47,11 +67,12 @@ function resolveToken(token, customer) {
 /**
  * Monta o array `parameters` do componente BODY para um cliente.
  * @param {string[]} templateParams tokens por posição
+ * @param {object} [ctx] contexto do envio (ex: { trackingUrl })
  */
-function buildBodyParameters(templateParams, customer) {
+function buildBodyParameters(templateParams, customer, ctx) {
   return (Array.isArray(templateParams) ? templateParams : []).map((token) => ({
     type: 'text',
-    text: resolveToken(token, customer),
+    text: resolveToken(token, customer, ctx),
   }));
 }
 
@@ -60,11 +81,11 @@ function buildBodyParameters(templateParams, customer) {
  * Usado só para exibição/registro em CampaignExecution.message — o envio real
  * vai pelos `parameters`, não por este texto.
  */
-function renderTemplateBody(bodyText, templateParams, customer) {
+function renderTemplateBody(bodyText, templateParams, customer, ctx) {
   if (!bodyText) return '';
   return bodyText.replace(/\{\{\s*(\d+)\s*\}\}/g, (match, position) => {
     const token = (templateParams || [])[Number(position) - 1];
-    return token ? resolveToken(token, customer) : match;
+    return token ? resolveToken(token, customer, ctx) : match;
   });
 }
 
@@ -86,4 +107,6 @@ module.exports = {
   buildBodyParameters,
   renderTemplateBody,
   extractVariables,
+  publicBaseUrl,
+  trackingUrlFor,
 };

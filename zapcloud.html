@@ -1295,7 +1295,7 @@ function Templates({token,wabaId}){
   const [templates,setTemplates]=useState([]);
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list');
-  const [form,setForm]=useState({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:''});
+  const [form,setForm]=useState({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:'',costPerConversation:'',linkUrl:''});
   const [saving,setSaving]=useState(false);
   const [result,setResult]=useState(null);
 
@@ -1326,7 +1326,7 @@ function Templates({token,wabaId}){
       const d=await r.json();
       if(d.success){
         setResult({ok:true,msg:'✅ Template enviado para aprovação da Meta!'});
-        setForm({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:''});
+        setForm({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:'',costPerConversation:'',linkUrl:''});
         load();setTimeout(()=>setView('list'),1200);
       } else setResult({ok:false,msg:'❌ '+(d.message||'Erro ao criar template.')});
     }catch(e){setResult({ok:false,msg:'Erro: '+e.message});}
@@ -1392,6 +1392,25 @@ function Templates({token,wabaId}){
           <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',margin:'14px 0 5px'}}>Rodapé (opcional)</label>
           <input value={form.footerText} onChange={e=>setForm(p=>({...p,footerText:e.target.value}))} placeholder="Responda SAIR para não receber mais" style={inp2} maxLength={60}/>
         </div>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>💰 Custo e link</h3>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Custo por conversa (R$)</label>
+              <input type="number" step="0.01" min="0" value={form.costPerConversation}
+                onChange={e=>setForm(p=>({...p,costPerConversation:e.target.value}))} placeholder="0.33" style={inp2}/>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>URL de destino do link</label>
+              <input type="url" value={form.linkUrl}
+                onChange={e=>setForm(p=>({...p,linkUrl:e.target.value}))} placeholder="https://seurestaurante.com/promo" style={inp2}/>
+            </div>
+          </div>
+          <p style={{fontSize:11,color:C.mt,marginTop:8,lineHeight:1.5}}>
+            O custo é o que a Meta cobra por conversa iniciada — usado para estimar o gasto da campanha.
+            A URL só é necessária se você mapear alguma variável para <b>Link rastreado</b> na campanha.
+          </p>
+        </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
@@ -1450,6 +1469,8 @@ function Templates({token,wabaId}){
              <span style={{fontSize:12,color:C.mt}}>{t.category}</span>
              <span style={{fontSize:12,color:C.mt}}>{t.language}</span>
              <span style={{fontSize:12,color:C.mt}}>🔢 {t.variableCount} variável(is)</span>
+             {t.costPerConversation!=null&&<span style={{fontSize:12,color:C.dk,fontWeight:600}}>💰 R$ {Number(t.costPerConversation).toFixed(2)}/conversa</span>}
+             {t.linkUrl&&<span style={{fontSize:12,color:C.mt}}>🔗 link</span>}
            </div>
            {t.status==='REJECTED'&&t.rejectedReason&&<p style={{fontSize:12,color:'#FF5252',marginTop:6}}>Motivo: {t.rejectedReason}</p>}
          </div>
@@ -1458,6 +1479,101 @@ function Templates({token,wabaId}){
          </button>
        </div>)}
      </div>}
+  </div>;
+}
+
+/* ══════════════════════════ RELATÓRIO DE CAMPANHA ══════════════════════════ */
+const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
+const brl=v=>v==null?'—':'R$ '+Number(v).toFixed(2);
+
+function CampaignReport({campaign,onClose,onRefresh,refreshing}){
+  // Fecha no Esc — modal sem isso prende o usuário no teclado
+  useEffect(()=>{
+    const h=e=>{if(e.key==='Escape')onClose();};
+    window.addEventListener('keydown',h);
+    return ()=>window.removeEventListener('keydown',h);
+  },[onClose]);
+
+  if(!campaign) return null;
+  const c=campaign;
+  const total=c.totalRecipients||0;
+  const sent=c.sentCount||0;
+  // Leitura e clique só fazem sentido sobre o que realmente saiu
+  const cards=[
+    {label:'Enviadas', value:sent,             base:total, color:C.p,       icon:'📤'},
+    {label:'Lidas',    value:c.readCount||0,   base:sent,  color:'#34B7F1', icon:'👁'},
+    {label:'Cliques',  value:c.clickCount||0,  base:sent,  color:'#ECB22E', icon:'🖱'},
+    {label:'Falhas',   value:c.failedCount||0, base:total, color:'#FF5252', icon:'⚠️'},
+  ];
+  const progress=pct(sent+(c.failedCount||0),total);
+
+  return <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,padding:20}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:20,padding:26,width:'100%',maxWidth:620,maxHeight:'88vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.25)'}}>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:20}}>
+        <div style={{minWidth:0}}>
+          <h2 style={{fontSize:19,fontWeight:700,color:C.tx,marginBottom:4}}>{c.name}</h2>
+          <p style={{fontSize:12,color:C.mt}}>
+            {c.template?.name?'Template: '+c.template.name+' · ':''}
+            {c.startedAt?'Disparada em '+new Date(c.startedAt).toLocaleString('pt-BR'):'Ainda não disparada'}
+          </p>
+        </div>
+        <div style={{display:'flex',gap:8,flexShrink:0}}>
+          <button onClick={onRefresh} disabled={refreshing} title="Atualizar" style={{padding:'7px 12px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',fontSize:12,fontWeight:600,color:C.tx}}>
+            {refreshing?'...':'↻'}
+          </button>
+          <button onClick={onClose} title="Fechar" style={{width:32,height:32,borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.tx} strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Progresso */}
+      <div style={{marginBottom:22}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+          <span style={{fontSize:12,fontWeight:600,color:C.tx}}>Progresso do disparo</span>
+          <span style={{fontSize:12,color:C.mt}}>{sent+(c.failedCount||0)} de {total} processados</span>
+        </div>
+        <div style={{height:10,borderRadius:99,background:C.bg,overflow:'hidden',display:'flex'}}>
+          <div style={{width:pct(sent,total)+'%',background:C.p,transition:'width .4s'}}/>
+          <div style={{width:pct(c.failedCount||0,total)+'%',background:'#FF5252',transition:'width .4s'}}/>
+        </div>
+        <p style={{fontSize:11,color:C.mt,marginTop:5}}>{progress}% concluído {c.status==='RUNNING'&&'· atualizando automaticamente'}</p>
+      </div>
+
+      {/* Métricas */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:22}}>
+        {cards.map(m=><div key={m.label} style={{background:C.bg,borderRadius:14,padding:'14px 12px',textAlign:'center'}}>
+          <div style={{fontSize:15,marginBottom:2}}>{m.icon}</div>
+          <div style={{fontSize:22,fontWeight:800,color:m.color}}>{m.value}</div>
+          <div style={{fontSize:11,color:C.mt,fontWeight:500}}>{m.label}</div>
+          <div style={{fontSize:11,color:m.color,fontWeight:600,marginTop:2}}>{pct(m.value,m.base)}%</div>
+        </div>)}
+      </div>
+      <p style={{fontSize:11,color:C.mt,marginTop:-14,marginBottom:20}}>
+        Enviadas e falhas sobre o total de {total}; lidas e cliques sobre as {sent} efetivamente enviadas.
+      </p>
+
+      {/* Custo */}
+      <div style={{background:C.bg,borderRadius:14,padding:16}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.tx,marginBottom:10}}>💰 Custo</p>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div>
+            <p style={{fontSize:11,color:C.mt}}>Estimado</p>
+            <p style={{fontSize:18,fontWeight:700,color:C.tx}}>{brl(c.estimatedCost)}</p>
+            <p style={{fontSize:11,color:C.mt}}>{total} destinatários</p>
+          </div>
+          <div>
+            <p style={{fontSize:11,color:C.mt}}>Real</p>
+            <p style={{fontSize:18,fontWeight:700,color:C.p}}>{brl(c.totalCost)}</p>
+            <p style={{fontSize:11,color:C.mt}}>{sent} enviadas de fato</p>
+          </div>
+        </div>
+        {c.estimatedCost!=null&&c.totalCost!=null&&c.totalCost<c.estimatedCost&&
+          <p style={{fontSize:11,color:C.dk,marginTop:10}}>Economia de {brl(c.estimatedCost-c.totalCost)} — falhas não geram conversa cobrada.</p>}
+        {c.estimatedCost==null&&
+          <p style={{fontSize:11,color:C.mt,marginTop:10}}>Defina o custo por conversa no template para acompanhar gasto.</p>}
+      </div>
+    </div>
   </div>;
 }
 
@@ -1475,6 +1591,9 @@ function Campaigns({token,wabaId}){
   const [testResult,setTestResult]=useState(null);
   const [saving,setSaving]=useState(false);
   const [executing,setExecuting]=useState(false);
+  const [report,setReport]=useState(null);
+  const [reportId,setReportId]=useState(null);
+  const [loadingReport,setLoadingReport]=useState(false);
 
   const load=async()=>{
     if(!token||!wabaId)return;
@@ -1497,6 +1616,25 @@ function Campaigns({token,wabaId}){
   };
 
   useEffect(()=>{load();loadTemplates();},[token,wabaId]);
+
+  // ── Relatório ──
+  const openReport=async(id)=>{
+    setReportId(id);setLoadingReport(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${id}`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) setReport(d.data); else alert('Erro: '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+    setLoadingReport(false);
+  };
+  const closeReport=()=>{setReport(null);setReportId(null);};
+
+  // Campanha em execução: atualiza sozinha para o usuário ver o disparo andar
+  useEffect(()=>{
+    if(!report||report.status!=='RUNNING')return;
+    const t=setInterval(()=>{openReport(report.id);},5000);
+    return ()=>clearInterval(t);
+  },[report?.id,report?.status]);
 
   const selectedTpl=templates.find(t=>t.id===form.templateId)||null;
 
@@ -1583,6 +1721,7 @@ function Campaigns({token,wabaId}){
     {v:'dias_sem_comprar', label:'Dias sem comprar', sample:'8'},
     {v:'total_pedidos',    label:'Total de pedidos', sample:'12'},
     {v:'ticket_medio',     label:'Ticket médio',     sample:'R$ 45.00'},
+    {v:'link_rastreado',   label:'Link rastreado',   sample:'https://.../r/abc123'},
   ];
   const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
 
@@ -1665,6 +1804,16 @@ function Campaigns({token,wabaId}){
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>📊 Alcance</h3>
           <div style={{fontSize:36,fontWeight:800,color:C.p,marginBottom:4}}>{preview.count}</div>
           <p style={{fontSize:13,color:C.mt,marginBottom:14}}>clientes serão impactados</p>
+          {selectedTpl&&(selectedTpl.costPerConversation!=null
+            ? <div style={{padding:'10px 12px',borderRadius:10,background:C.p+'12',marginBottom:14}}>
+                <p style={{fontSize:12,color:C.dkk,fontWeight:600}}>Estimativa de custo</p>
+                <p style={{fontSize:12,color:C.tx,marginTop:2}}>
+                  {preview.count} pessoas × R$ {Number(selectedTpl.costPerConversation).toFixed(2)} = <b style={{fontSize:14}}>R$ {(preview.count*Number(selectedTpl.costPerConversation)).toFixed(2)}</b>
+                </p>
+              </div>
+            : <div style={{padding:'10px 12px',borderRadius:10,background:'#FFF8E1',marginBottom:14,fontSize:12,color:'#7A5B00'}}>
+                O template não tem custo por conversa definido — sem estimativa de gasto.
+              </div>)}
           {preview.sample?.length>0&&<><p style={{fontSize:12,fontWeight:600,color:C.mt,marginBottom:8}}>Exemplos:</p>
           {preview.sample.map(c=><div key={c.id} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
             <Av name={c.name||c.phone} sz={28}/><div>
@@ -1718,7 +1867,8 @@ function Campaigns({token,wabaId}){
        <button onClick={()=>setView('create')} style={{padding:'10px 24px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>Criar campanha</button>
      </div>:
      <div style={{display:'flex',flexDirection:'column',gap:12}}>
-       {campaigns.map(c=><div key={c.id} style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:16}}>
+       {campaigns.map(c=><div key={c.id} onClick={()=>openReport(c.id)} title="Ver relatório"
+         style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:16,cursor:'pointer'}}>
          <div style={{width:44,height:44,borderRadius:12,background:C.p+'15',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
          </div>
@@ -1731,11 +1881,14 @@ function Campaigns({token,wabaId}){
            <div style={{display:'flex',gap:16,marginTop:6}}>
              <span style={{fontSize:12,color:C.mt}}>👥 {c.totalRecipients} destinatários</span>
              {c.sentCount>0&&<span style={{fontSize:12,color:C.p}}>✅ {c.sentCount} enviados</span>}
+             {c.readCount>0&&<span style={{fontSize:12,color:'#34B7F1'}}>👁 {c.readCount} lidas</span>}
+             {c.clickCount>0&&<span style={{fontSize:12,color:'#ECB22E'}}>🖱 {c.clickCount} cliques</span>}
              {c.failedCount>0&&<span style={{fontSize:12,color:'#FF5252'}}>❌ {c.failedCount} falhas</span>}
+             {c.totalCost!=null&&<span style={{fontSize:12,color:C.dk,fontWeight:600}}>{brl(c.totalCost)}</span>}
              <span style={{fontSize:12,color:C.mt}}>{new Date(c.createdAt).toLocaleDateString('pt-BR')}</span>
            </div>
          </div>
-         {(c.status==='DRAFT')&&<button onClick={()=>executeCampaign(c.id)} disabled={executing===c.id}
+         {(c.status==='DRAFT')&&<button onClick={e=>{e.stopPropagation();executeCampaign(c.id);}} disabled={executing===c.id}
            style={{padding:'9px 18px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,flexShrink:0}}>
            {executing===c.id?'Disparando...':'🚀 Disparar'}
          </button>}
@@ -1745,6 +1898,8 @@ function Campaigns({token,wabaId}){
          </div>}
        </div>)}
      </div>}
+    {reportId&&!report&&loadingReport&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,color:'#fff',fontSize:13}}>Carregando relatório...</div>}
+    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport}/>}
   </div>;
 }
 

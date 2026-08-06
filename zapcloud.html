@@ -1822,12 +1822,46 @@ function Layout({user,token,onLogout}){
 }
 
 /* ══════════════════════════ APP ══════════════════════════ */
+const TOKEN_KEY='zapcloud_token';
+// localStorage pode lançar (modo privado, cookies bloqueados) — nunca deixar quebrar o app
+const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+const lsDel=k=>{try{localStorage.removeItem(k);}catch(e){}};
+
+function Splash(){
+  return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:12,color:C.mt}}>
+    <div className="spin" style={{width:32,height:32,border:`3px solid ${C.p}`,borderTopColor:'transparent',borderRadius:'50%'}}/>
+    <span style={{fontSize:13}}>Restaurando sessão...</span>
+  </div>;
+}
+
 function App(){
   const [user,setUser]=useState(null);
   const [token,setToken]=useState(null);
-  const login=(u,t)=>{setUser(u);setToken(t);};
+  const [booting,setBooting]=useState(true);
+
+  // Ao montar: restaura a sessão a partir do token salvo, validando em /api/auth/me
+  useEffect(()=>{
+    let cancelled=false;
+    const saved=lsGet(TOKEN_KEY);
+    if(!saved){setBooting(false);return;}
+    fetch(`${API}/api/auth/me`,{headers:{Authorization:`Bearer ${saved}`}})
+      .then(async r=>{
+        if(r.status===401){lsDel(TOKEN_KEY);return;} // token expirado ou inválido
+        const d=await r.json();
+        if(!cancelled&&d&&d.success){setUser(d.data);setToken(saved);}
+      })
+      .catch(()=>{}) // rede indisponível: preserva o token e tenta no próximo load
+      .finally(()=>{if(!cancelled)setBooting(false);});
+    return ()=>{cancelled=true;};
+  },[]);
+
+  const login=(u,t)=>{lsSet(TOKEN_KEY,t);setUser(u);setToken(t);};
+  const logout=()=>{lsDel(TOKEN_KEY);setUser(null);setToken(null);};
+
+  if(booting) return <Splash/>;
   if(!user) return <Login onLogin={login}/>;
-  return <Layout user={user} token={token} onLogout={()=>{setUser(null);setToken(null);}}/>;
+  return <Layout user={user} token={token} onLogout={logout}/>;
 }
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>

@@ -3,10 +3,14 @@ const { body, param } = require('express-validator');
 const router = express.Router();
 const { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource, getCustomerOrders } = require('../controllers/crmController');
 const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend } = require('../controllers/campaignController');
-const { authenticate } = require('../middlewares/auth');
+const { authenticate, validateWabaOwnership } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 
 router.use(authenticate);
+
+// Toda rota deste router é escopada por :wabaAccountId. Aplicar o dono aqui,
+// em vez de rota a rota, garante que qualquer rota nova nasça protegida.
+router.use('/:wabaAccountId', validateWabaOwnership);
 
 // ─── Clientes ─────────────────────────────────────────────────────────────────
 router.get('/:wabaAccountId/customers', listCustomers);

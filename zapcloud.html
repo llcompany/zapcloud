@@ -1654,7 +1654,7 @@ function Campaigns({token,wabaId}){
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
+  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
   const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
@@ -1717,13 +1717,21 @@ function Campaigns({token,wabaId}){
     const next=[...p.templateParams];next[idx]=token;return {...p,templateParams:next};
   });
 
+  // Monta o segmento enviado ao backend. Único lugar que decide isso —
+  // preview e salvamento precisam concordar, senão o alcance mostrado mente.
+  const buildSegment=()=>{
+    if(form.segmentFilter.allCustomers) return {allCustomers:true};
+    const sf={};
+    if(form.segmentFilter.daysInactive) sf.daysInactive=form.segmentFilter.daysInactive;
+    if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
+    if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
+    if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
+    return sf;
+  };
+
   const doPreview=async()=>{
     try{
-      const sf={};
-      if(form.segmentFilter.daysInactive) sf.daysInactive=form.segmentFilter.daysInactive;
-      if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
-      if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
-      if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
+      const sf=buildSegment();
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/preview`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({segmentFilter:sf})});
@@ -1736,16 +1744,12 @@ function Campaigns({token,wabaId}){
     if(!form.name||!form.templateId){alert('Preencha o nome e selecione um template aprovado!');return;}
     setSaving(true);
     try{
-      const sf={};
-      if(form.segmentFilter.daysInactive) sf.daysInactive=form.segmentFilter.daysInactive;
-      if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
-      if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
-      if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
+      const sf=buildSegment();
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],segmentFilter:{daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
@@ -1795,6 +1799,7 @@ function Campaigns({token,wabaId}){
     {v:'link_rastreado',   label:'Link rastreado',   sample:'https://.../r/abc123'},
   ];
   const inp2={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
+  const todos=!!form.segmentFilter.allCustomers;
 
   // Renderiza o corpo do template ({{1}}, {{2}}…) com valores de exemplo
   const renderPreview=()=>{
@@ -1846,22 +1851,32 @@ function Campaigns({token,wabaId}){
         </div>
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>🎯 Segmentação</h3>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <label style={{display:'flex',alignItems:'center',gap:9,padding:'11px 13px',borderRadius:12,marginBottom:14,cursor:'pointer',
+            background:todos?C.p+'15':C.bg,border:`1px solid ${todos?C.p:C.br}`}}>
+            <input type="checkbox" checked={todos}
+              onChange={e=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,allCustomers:e.target.checked}}));}}
+              style={{width:16,height:16,accentColor:C.p,cursor:'pointer'}}/>
+            <div>
+              <p style={{fontSize:13,fontWeight:600,color:todos?C.dkk:C.tx}}>Todos os clientes</p>
+              <p style={{fontSize:11,color:C.mt}}>Ignora os filtros abaixo e envia para a base inteira.</p>
+            </div>
+          </label>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,opacity:todos?.45:1,pointerEvents:todos?'none':'auto'}}>
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Dias sem comprar (mín.)</label>
-              <input type="number" value={form.segmentFilter.daysInactive} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,daysInactive:e.target.value}}))} placeholder="Ex: 7" style={inp2}/>
+              <input type="number" disabled={todos} value={form.segmentFilter.daysInactive} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,daysInactive:e.target.value}}))} placeholder="Ex: 7" style={inp2}/>
             </div>
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Pedidos mínimos</label>
-              <input type="number" value={form.segmentFilter.minOrders} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minOrders:e.target.value}}))} placeholder="Ex: 2" style={inp2}/>
+              <input type="number" disabled={todos} value={form.segmentFilter.minOrders} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minOrders:e.target.value}}))} placeholder="Ex: 2" style={inp2}/>
             </div>
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Pedidos máximos</label>
-              <input type="number" value={form.segmentFilter.maxOrders} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,maxOrders:e.target.value}}))} placeholder="Ex: 10" style={inp2}/>
+              <input type="number" disabled={todos} value={form.segmentFilter.maxOrders} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,maxOrders:e.target.value}}))} placeholder="Ex: 10" style={inp2}/>
             </div>
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Ticket médio mín. (R$)</label>
-              <input type="number" value={form.segmentFilter.minTicket} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minTicket:e.target.value}}))} placeholder="Ex: 50" style={inp2}/>
+              <input type="number" disabled={todos} value={form.segmentFilter.minTicket} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minTicket:e.target.value}}))} placeholder="Ex: 50" style={inp2}/>
             </div>
           </div>
           <button onClick={()=>doPreview()} style={{marginTop:14,padding:'9px 20px',borderRadius:10,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,fontWeight:600,fontSize:13}}>

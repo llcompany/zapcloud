@@ -64,7 +64,12 @@ function buildMessage(template, customer) {
 // ─── Aplicar filtros de segmento ──────────────────────────────────────────────
 function buildFilter(wabaAccountId, segmentFilter) {
   const where = { wabaAccountId, isActive: true };
-  const { daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags } = segmentFilter || {};
+  const { allCustomers, daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags } = segmentFilter || {};
+
+  // "Todos os clientes" descarta toda a segmentação.
+  // isActive permanece porque a tela de CRM também filtra por ele: assim
+  // "todos" significa exatamente os clientes que o usuário vê listados.
+  if (allCustomers) return where;
 
   // Usa lastOrderAt para calcular dias dinamicamente (daysSinceOrder no banco fica obsoleto)
   const now = Date.now();

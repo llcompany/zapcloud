@@ -61,6 +61,8 @@ async function receiveOrder(req, res) {
       if (order.items?.length) {
         favItems = mergeFavoriteItems(favItems, order.items);
       }
+      // O pedido atual ainda não está em CustomerOrder — entra como data extra
+      const preferredDayOfWeek = await computePreferredDay(existing.id, [new Date()]);
       crmCustomer = await prisma.crmCustomer.update({
         where: { id: existing.id },
         data: {
@@ -71,6 +73,8 @@ async function receiveOrder(req, res) {
           lastOrderAt:    new Date(),
           daysSinceOrder: 0,
           favoriteItems:  favItems,
+          topItem:        topItemFrom(favItems) || existing.topItem,
+          preferredDayOfWeek,
           tags:           buildOrderTags(newTotal, existing.tags),
           source:         'multipedidos',
         },
@@ -88,6 +92,8 @@ async function receiveOrder(req, res) {
           lastOrderAt:    new Date(),
           daysSinceOrder: 0,
           favoriteItems:  order.items || [],
+          topItem:        topItemFrom(mergeFavoriteItems([], order.items || [])),
+          preferredDayOfWeek: new Date().getDay(),
           tags:           buildOrderTags(1, ['multipedidos']),
           source:         'multipedidos',
           externalId:     String(order.id || ''),
@@ -209,6 +215,28 @@ function mergeFavoriteItems(existing, newItems) {
   return Object.values(map).sort(function(a, b) { return b.count - a.count; }).slice(0, 10);
 }
 
+// Primeiro item da lista de favoritos (já ordenada por count). Aceita o formato
+// antigo (string) e o atual ({ name }).
+function topItemFrom(favItems) {
+  const first = (favItems || [])[0];
+  if (!first) return null;
+  return (typeof first === 'string' ? first : first.name) || null;
+}
+
+// Dia da semana (0=domingo … 6=sábado) com mais pedidos. `extraDates` permite
+// contar um pedido que ainda não foi gravado em CustomerOrder.
+async function computePreferredDay(crmCustomerId, extraDates = []) {
+  const orders = await prisma.customerOrder.findMany({
+    where: { crmCustomerId },
+    select: { orderedAt: true },
+  });
+  const dates = orders.map(o => o.orderedAt).concat(extraDates);
+  if (!dates.length) return null;
+  const counts = [0, 0, 0, 0, 0, 0, 0];
+  dates.forEach(d => counts[new Date(d).getDay()]++);
+  return counts.indexOf(Math.max(...counts));
+}
+
 // ─── Backfill: atualizar tags de todos os clientes com base no totalOrders ────
 async function backfillTags(req, res) {
   try {
@@ -236,4 +264,43 @@ async function backfillTags(req, res) {
   }
 }
 
-module.exports = { receiveOrder, getStatus, backfillTags, normalizePhone };
+// ─── Backfill: recalcular topItem e preferredDayOfWeek de todos os clientes ───
+async function backfillPreferred(req, res) {
+  try {
+    const customers = await prisma.crmCustomer.findMany({
+      select: {
+        id: true,
+        favoriteItems: true,
+        orders: { select: { orderedAt: true, items: true } },
+      },
+    });
+
+    let updated = 0;
+    for (const c of customers) {
+      // topItem: recalculado a partir dos itens de todos os pedidos;
+      // sem itens no histórico, cai para os favoritos já acumulados no cliente
+      const allItems = c.orders.flatMap(o => (Array.isArray(o.items) ? o.items : []));
+      const topItem = topItemFrom(mergeFavoriteItems([], allItems)) || topItemFrom(c.favoriteItems);
+
+      let preferredDayOfWeek = null;
+      if (c.orders.length) {
+        const counts = [0, 0, 0, 0, 0, 0, 0];
+        c.orders.forEach(o => counts[new Date(o.orderedAt).getDay()]++);
+        preferredDayOfWeek = counts.indexOf(Math.max(...counts));
+      }
+
+      await prisma.crmCustomer.update({
+        where: { id: c.id },
+        data: { topItem, preferredDayOfWeek },
+      });
+      updated++;
+    }
+
+    res.json({ success: true, message: `${updated} clientes atualizados com topItem e preferredDayOfWeek.` });
+  } catch (err) {
+    console.error('[Backfill preferred] Erro:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { receiveOrder, getStatus, backfillTags, backfillPreferred, normalizePhone };

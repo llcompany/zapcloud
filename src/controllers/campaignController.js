@@ -64,7 +64,7 @@ function buildMessage(template, customer) {
 // ─── Aplicar filtros de segmento ──────────────────────────────────────────────
 function buildFilter(wabaAccountId, segmentFilter) {
   const where = { wabaAccountId, isActive: true };
-  const { allCustomers, sourceFilter, daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags } = segmentFilter || {};
+  const { allCustomers, sourceFilter, daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags, preferredDay, topItem } = segmentFilter || {};
 
   // Origem se aplica antes do atalho de "todos": permite disparar para
   // toda a base de uma origem específica (ex: todos de fidelidade_10x).
@@ -86,6 +86,11 @@ function buildFilter(wabaAccountId, segmentFilter) {
   if (maxTicket)       where.averageTicket  = { ...where.averageTicket, lte: parseFloat(maxTicket) };
   if (tag)             where.tags           = { has: tag };
   if (tags?.length)    where.tags           = { hasSome: tags };
+  // 0 é domingo — checar por null/'' para não descartar o valor 0
+  if (preferredDay !== undefined && preferredDay !== null && preferredDay !== '') {
+    where.preferredDayOfWeek = parseInt(preferredDay);
+  }
+  if (topItem)         where.topItem        = { contains: topItem, mode: 'insensitive' };
 
   return where;
 }

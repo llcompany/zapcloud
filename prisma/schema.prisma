@@ -191,6 +191,8 @@ model CrmCustomer {
   favoriteItems   Json      @default("[]")
   tags            String[]
   source          String    @default("manual") // manual, multipedidos, anotaai, etc.
+  preferredDayOfWeek Int?   // dia da semana com mais pedidos: 0=domingo, 1=segunda, ..., 6=sábado
+  topItem         String?   // nome do item mais pedido
   externalId      String?   // ID no sistema de origem
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())

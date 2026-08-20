@@ -423,6 +423,7 @@ function Conversations({token}){
 
 /* ══════════════════════════ CONTATOS ══════════════════════════ */
 const TAG_COL={cliente:{bg:'#25D36618',c:'#128C7E'},vip:{bg:'#ECB22E18',c:'#b45309'},suporte:{bg:'#34B7F118',c:'#0369a1'},lead:{bg:'#8B5CF618',c:'#6d28d9'}};
+const DIAS_SEMANA=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 function Contacts({token,wabaId}){
   const [contacts,setContacts]=useState([]);
   const [total,setTotal]=useState(0);
@@ -530,6 +531,10 @@ function Contacts({token,wabaId}){
           {c.source&&<span style={{fontSize:11,padding:'3px 8px',borderRadius:20,background:C.bg,color:C.mt,textTransform:'capitalize'}}>{c.source}</span>}
           {(c.tags||[]).map(t=>{const s=TAG_COL[t]||{bg:C.bg,c:C.mt};return <span key={t} style={{fontSize:11,padding:'3px 8px',borderRadius:20,background:s.bg,color:s.c,textTransform:'capitalize'}}>{t}</span>;})}
         </div>
+        {(c.preferredDayOfWeek!=null||c.topItem)&&<div style={{display:'flex',flexDirection:'column',gap:3,marginBottom:12}}>
+          {c.preferredDayOfWeek!=null&&<p style={{fontSize:12,color:C.mt}}>📅 Prefere comprar: <b style={{color:C.tx}}>{DIAS_SEMANA[c.preferredDayOfWeek]||'-'}</b></p>}
+          {c.topItem&&<p style={{fontSize:12,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>🍔 Favorito: <b style={{color:C.tx}}>{c.topItem}</b></p>}
+        </div>}
         <button style={{width:'100%',padding:8,borderRadius:10,border:'none',background:C.p+'18',color:C.p,fontWeight:500,fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Enviar mensagem
         </button>
@@ -1752,7 +1757,7 @@ function Campaigns({token,wabaId}){
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
+  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});
   const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
@@ -1824,6 +1829,9 @@ function Campaigns({token,wabaId}){
     if(form.segmentFilter.minOrders) sf.minOrders=form.segmentFilter.minOrders;
     if(form.segmentFilter.maxOrders) sf.maxOrders=form.segmentFilter.maxOrders;
     if(form.segmentFilter.minTicket) sf.minTicket=form.segmentFilter.minTicket;
+    // 0 = domingo — o valor '' é "qualquer dia", por isso não dá para usar truthy
+    if(form.segmentFilter.preferredDay!=='') sf.preferredDay=parseInt(form.segmentFilter.preferredDay);
+    if(form.segmentFilter.topItem.trim()) sf.topItem=form.segmentFilter.topItem.trim();
     return sf;
   };
 
@@ -1850,7 +1858,7 @@ function Campaigns({token,wabaId}){
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf,sourceFilter:buildSourceFilter()})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
@@ -1996,6 +2004,23 @@ function Campaigns({token,wabaId}){
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Ticket médio mín. (R$)</label>
               <input type="number" disabled={todos} value={form.segmentFilter.minTicket} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,minTicket:e.target.value}}))} placeholder="Ex: 50" style={inp2}/>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Dia preferido de compra</label>
+              <select disabled={todos} value={form.segmentFilter.preferredDay} onChange={e=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,preferredDay:e.target.value}}));}} style={inp2}>
+                <option value="">Qualquer dia</option>
+                <option value="0">Domingo</option>
+                <option value="1">Segunda</option>
+                <option value="2">Terça</option>
+                <option value="3">Quarta</option>
+                <option value="4">Quinta</option>
+                <option value="5">Sexta</option>
+                <option value="6">Sábado</option>
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Sabor/item mais pedido</label>
+              <input type="text" disabled={todos} value={form.segmentFilter.topItem} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,topItem:e.target.value}}))} placeholder="Ex: Pizza, Hamburguer..." style={inp2}/>
             </div>
           </div>
           <button onClick={()=>doPreview()} style={{marginTop:14,padding:'9px 20px',borderRadius:10,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,fontWeight:600,fontSize:13}}>

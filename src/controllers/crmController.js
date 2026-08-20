@@ -34,7 +34,15 @@ const listCustomers = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [customers, total, distinctSources] = await Promise.all([
-      prisma.crmCustomer.findMany({ where, orderBy: { lastOrderAt: 'desc' }, skip, take: parseInt(limit) }),
+      prisma.crmCustomer.findMany({
+        where,
+        orderBy: [
+          { lastOrderAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+        ],
+        skip,
+        take: parseInt(limit),
+      }),
       prisma.crmCustomer.count({ where }),
       // Sources distintos da conta inteira (sem filtros) — alimenta o dropdown "Origem"
       prisma.crmCustomer.findMany({ where: { wabaAccountId }, distinct: ['source'], select: { source: true } }),

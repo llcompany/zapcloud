@@ -235,6 +235,7 @@ model Campaign {
   templateId      String?        // template aprovado usado no disparo (obrigatório para envio em massa)
   templateParams  Json           @default("[]") // tokens por posicao: ["nome","dias_sem_comprar"] alimenta {{1}},{{2}}
   segmentFilter   Json           // filtros: { daysInactive, minOrders, maxOrders, minTicket, favoriteItem, tags }
+  sourceFilter    String?        // restringe o disparo a uma origem de contatos (ex: multipedidos, fidelidade_10x)
   status          CampaignStatus @default(DRAFT)
   totalRecipients Int            @default(0)
   sentCount       Int            @default(0)

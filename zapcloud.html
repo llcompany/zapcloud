@@ -1752,7 +1752,7 @@ function Campaigns({token,wabaId}){
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
+  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});
   const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
@@ -1827,12 +1827,15 @@ function Campaigns({token,wabaId}){
     return sf;
   };
 
+  // Origem só entra quando o campo está habilitado (com "todos" ele fica desabilitado na tela)
+  const buildSourceFilter=()=>form.segmentFilter.allCustomers?null:(form.sourceFilter||null);
+
   const doPreview=async()=>{
     try{
       const sf=buildSegment();
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/preview`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify({segmentFilter:sf})});
+        body:JSON.stringify({segmentFilter:sf,sourceFilter:buildSourceFilter()})});
       const d=await r.json();
       if(d.success) setPreview(d.data);
     }catch(e){}
@@ -1845,9 +1848,9 @@ function Campaigns({token,wabaId}){
       const sf=buildSegment();
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf})});
+        body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf,sourceFilter:buildSourceFilter()})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
@@ -1959,6 +1962,24 @@ function Campaigns({token,wabaId}){
               <p style={{fontSize:11,color:C.mt}}>Ignora os filtros abaixo e envia para a base inteira.</p>
             </div>
           </label>
+          <div style={{marginBottom:14,opacity:todos?.45:1}}>
+            <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Origem dos contatos</label>
+            <select disabled={todos} value={form.sourceFilter}
+              onChange={e=>{setPreview(null);setForm(p=>({...p,sourceFilter:e.target.value}));}} style={inp2}>
+              <option value="">Todas as origens</option>
+              <option value="multipedidos">Multipedidos</option>
+              <option value="fidelidade_10x">Fidelidade 10x</option>
+              <option value="fidelidade_20x">Fidelidade 20x</option>
+              <option value="fidelidade_30x">Fidelidade 30x</option>
+              <option value="fidelidade_40x">Fidelidade 40x</option>
+              <option value="fidelidade_50x">Fidelidade 50x</option>
+              <option value="fidelidade_60x">Fidelidade 60x</option>
+              <option value="fidelidade_70x">Fidelidade 70x</option>
+              <option value="fidelidade_80x">Fidelidade 80x</option>
+              <option value="fidelidade_90x">Fidelidade 90x</option>
+              <option value="fidelidade_100x">Fidelidade 100x+</option>
+            </select>
+          </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,opacity:todos?.45:1,pointerEvents:todos?'none':'auto'}}>
             <div>
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Dias sem comprar (mín.)</label>

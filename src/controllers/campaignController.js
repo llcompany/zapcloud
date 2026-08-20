@@ -64,9 +64,13 @@ function buildMessage(template, customer) {
 // ─── Aplicar filtros de segmento ──────────────────────────────────────────────
 function buildFilter(wabaAccountId, segmentFilter) {
   const where = { wabaAccountId, isActive: true };
-  const { allCustomers, daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags } = segmentFilter || {};
+  const { allCustomers, sourceFilter, daysInactive, minDaysInactive, maxDaysInactive, minOrders, maxOrders, minTicket, maxTicket, favoriteItem, tag, tags } = segmentFilter || {};
 
-  // "Todos os clientes" descarta toda a segmentação.
+  // Origem se aplica antes do atalho de "todos": permite disparar para
+  // toda a base de uma origem específica (ex: todos de fidelidade_10x).
+  if (sourceFilter) where.source = sourceFilter;
+
+  // "Todos os clientes" descarta o restante da segmentação.
   // isActive permanece porque a tela de CRM também filtra por ele: assim
   // "todos" significa exatamente os clientes que o usuário vê listados.
   if (allCustomers) return where;
@@ -104,7 +108,8 @@ const listCampaigns = async (req, res) => {
 const createCampaign = async (req, res) => {
   try {
     const { wabaAccountId } = req.params;
-    const { name, message, segmentFilter, templateId, templateParams } = req.body;
+    const { name, message, segmentFilter, templateId, templateParams, sourceFilter } = req.body;
+    const source = sourceFilter || segmentFilter?.sourceFilter || null;
 
     let template = null;
     let params = Array.isArray(templateParams) ? templateParams : [];
@@ -128,7 +133,7 @@ const createCampaign = async (req, res) => {
     }
 
     // Conta quantos clientes serão impactados
-    const where = buildFilter(wabaAccountId, segmentFilter);
+    const where = buildFilter(wabaAccountId, { ...(segmentFilter || {}), sourceFilter: source });
     const totalRecipients = await prisma.crmCustomer.count({ where });
 
     const campaign = await prisma.campaign.create({
@@ -140,6 +145,7 @@ const createCampaign = async (req, res) => {
         templateId: template?.id || null,
         templateParams: params,
         segmentFilter: segmentFilter || {},
+        sourceFilter: source,
         totalRecipients,
       },
     });
@@ -154,9 +160,9 @@ const createCampaign = async (req, res) => {
 const previewSegment = async (req, res) => {
   try {
     const { wabaAccountId } = req.params;
-    const { segmentFilter } = req.body;
+    const { segmentFilter, sourceFilter } = req.body;
 
-    const where = buildFilter(wabaAccountId, segmentFilter);
+    const where = buildFilter(wabaAccountId, { ...(segmentFilter || {}), sourceFilter: sourceFilter || segmentFilter?.sourceFilter || null });
     const [count, sample] = await Promise.all([
       prisma.crmCustomer.count({ where }),
       prisma.crmCustomer.findMany({ where, take: 5, orderBy: { lastOrderAt: 'desc' } }),
@@ -199,8 +205,8 @@ const executeCampaign = async (req, res) => {
       });
     }
 
-    // Busca clientes do segmento
-    const where = buildFilter(wabaAccountId, campaign.segmentFilter);
+    // Busca clientes do segmento (a origem gravada na campanha entra no filtro)
+    const where = buildFilter(wabaAccountId, { ...(campaign.segmentFilter || {}), sourceFilter: campaign.sourceFilter || campaign.segmentFilter?.sourceFilter || null });
     const customers = await prisma.crmCustomer.findMany({ where });
 
     // Custo estimado a partir do preço por conversa do template

@@ -33,9 +33,11 @@ const listCustomers = async (req, res) => {
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const [customers, total] = await Promise.all([
+    const [customers, total, distinctSources] = await Promise.all([
       prisma.crmCustomer.findMany({ where, orderBy: { lastOrderAt: 'desc' }, skip, take: parseInt(limit) }),
       prisma.crmCustomer.count({ where }),
+      // Sources distintos da conta inteira (sem filtros) — alimenta o dropdown "Origem"
+      prisma.crmCustomer.findMany({ where: { wabaAccountId }, distinct: ['source'], select: { source: true } }),
     ]);
 
     // Recalcula daysSinceOrder dinamicamente
@@ -45,7 +47,7 @@ const listCustomers = async (req, res) => {
       daysSinceOrder: c.lastOrderAt ? Math.floor((now - new Date(c.lastOrderAt)) / 86400000) : 999,
     }));
 
-    res.json({ success: true, data: { customers: result, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) } });
+    res.json({ success: true, data: { customers: result, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)), sources: distinctSources.map(s => s.source).filter(Boolean).sort() } });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Erro ao listar clientes.', error: err.message });
   }

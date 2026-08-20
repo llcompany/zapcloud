@@ -1,10 +1,22 @@
 const express = require('express');
+const multer = require('multer');
 const { body, param } = require('express-validator');
 const router = express.Router();
 const { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource, getCustomerOrders } = require('../controllers/crmController');
+const { importContacts } = require('../controllers/contactController');
 const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend } = require('../controllers/campaignController');
 const { authenticate, validateWabaOwnership } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
+
+// Upload em memória para importação de contatos (.csv/.xlsx, máx. 5MB)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = /\.(csv|xlsx)$/i.test(file.originalname || '');
+    cb(ok ? null : new Error('Formato inválido. Envie um arquivo .csv ou .xlsx.'), ok);
+  },
+});
 
 router.use(authenticate);
 
@@ -22,6 +34,15 @@ router.put('/:wabaAccountId/customers', [
 router.delete('/:wabaAccountId/customers/bulk', deleteBySource);
 router.delete('/:wabaAccountId/customers/:customerId', deleteCustomer);
 router.get('/:wabaAccountId/customers/:customerId/orders', getCustomerOrders);
+router.post('/:wabaAccountId/contacts/import', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo muito grande (máx. 5MB).' : err.message;
+      return res.status(400).json({ success: false, message: msg });
+    }
+    next();
+  });
+}, importContacts);
 router.post('/:wabaAccountId/customers/import', [
   param('wabaAccountId').isUUID(),
   body('customers').isArray().withMessage('Lista de clientes obrigatória.'),

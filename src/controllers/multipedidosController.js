@@ -236,4 +236,4 @@ async function backfillTags(req, res) {
   }
 }
 
-module.exports = { receiveOrder, getStatus, backfillTags };
+module.exports = { receiveOrder, getStatus, backfillTags, normalizePhone };

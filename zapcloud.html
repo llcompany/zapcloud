@@ -422,21 +422,88 @@ function Conversations({token}){
 }
 
 /* ══════════════════════════ CONTATOS ══════════════════════════ */
-const ALL_CONTACTS=[];
 const TAG_COL={cliente:{bg:'#25D36618',c:'#128C7E'},vip:{bg:'#ECB22E18',c:'#b45309'},suporte:{bg:'#34B7F118',c:'#0369a1'},lead:{bg:'#8B5CF618',c:'#6d28d9'}};
-function Contacts(){
+function Contacts({token,wabaId}){
+  const [contacts,setContacts]=useState([]);
+  const [total,setTotal]=useState(0);
+  const [sources,setSources]=useState([]);
+  const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState('');
   const [filter,setFilter]=useState('todos');
+  const [sourceFilter,setSourceFilter]=useState('');
+  const [showImport,setShowImport]=useState(false);
+  const [importSource,setImportSource]=useState('');
+  const [importFile,setImportFile]=useState(null);
+  const [importing,setImporting]=useState(false);
+  const [toast,setToast]=useState(null);
+  const toastTimer=useRef(null);
   const tags=['todos','cliente','vip','suporte','lead'];
-  const list=ALL_CONTACTS.filter(c=>(filter==='todos'||c.tags.includes(filter))&&c.name.toLowerCase().includes(search.toLowerCase()));
+
+  const showToast=(msg,ok=true)=>{
+    clearTimeout(toastTimer.current);
+    setToast({msg,ok});
+    toastTimer.current=setTimeout(()=>setToast(null),4000);
+  };
+  useEffect(()=>()=>clearTimeout(toastTimer.current),[]);
+
+  const load=async(src)=>{
+    if(!token||!wabaId)return;
+    setLoading(true);
+    try{
+      const params=new URLSearchParams({limit:'100'});
+      const s=src!==undefined?src:sourceFilter;
+      if(s)params.set('source',s);
+      const r=await fetch(`${API}/api/crm/${wabaId}/customers?${params}`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success){
+        setContacts(d.data.customers||[]);
+        setTotal(d.data.total||0);
+        setSources(d.data.sources||[]);
+      }
+    }catch(e){console.error(e);}
+    setLoading(false);
+  };
+  useEffect(()=>{load();},[token,wabaId]);
+
+  const pickSource=(v)=>{setSourceFilter(v);load(v);};
+
+  const doImport=async()=>{
+    if(!importFile||importing)return;
+    setImporting(true);
+    try{
+      const fd=new FormData();
+      fd.append('file',importFile);
+      if(importSource.trim())fd.append('source',importSource.trim());
+      const r=await fetch(`${API}/api/crm/${wabaId}/contacts/import`,{method:'POST',
+        headers:{Authorization:`Bearer ${token}`},body:fd});
+      const d=await r.json();
+      if(d.success){
+        showToast(`${d.imported} contatos importados, ${d.skipped} ignorados`+(d.errors&&d.errors.length?` (${d.errors.length} linhas com erro)`:''));
+        setShowImport(false);setImportSource('');setImportFile(null);
+        load();
+      }else showToast('Erro: '+(d.message||'falha na importação'),false);
+    }catch(e){showToast('Erro: '+e.message,false);}
+    setImporting(false);
+  };
+
+  // Sources do dropdown: fixos + distintos vindos da API
+  const sourceOpts=[...new Set(['multipedidos','importado',...sources])];
+  const list=contacts.filter(c=>(filter==='todos'||(c.tags||[]).includes(filter))&&((c.name||c.phone||'').toLowerCase().includes(search.toLowerCase())||(c.phone||'').includes(search)));
+  const inpS={width:'100%',padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,background:'#fff',outline:'none'};
+
   return <div style={{padding:24,overflowY:'auto',height:'100%'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-      <div><h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>Contatos</h1><p style={{fontSize:13,color:C.mt}}>{ALL_CONTACTS.length} cadastrados</p></div>
-      <button style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Novo
-      </button>
+      <div><h1 style={{fontSize:22,fontWeight:700,color:C.tx}}>Contatos</h1><p style={{fontSize:13,color:C.mt}}>{total} cadastrados</p></div>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={()=>setShowImport(true)} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:`1.5px solid ${C.p}`,background:'#fff',color:C.p,fontWeight:600,fontSize:13,cursor:'pointer'}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg> Importar
+        </button>
+        <button style={{display:'flex',alignItems:'center',gap:6,padding:'9px 18px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Novo
+        </button>
+      </div>
     </div>
-    <div style={{display:'flex',gap:10,marginBottom:18,flexWrap:'wrap'}}>
+    <div style={{display:'flex',gap:10,marginBottom:18,flexWrap:'wrap',alignItems:'center'}}>
       <div style={{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:200,padding:'9px 14px',borderRadius:12,background:'#fff',border:`1px solid ${C.br}`}}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{flex:1,border:'none',background:'transparent',fontSize:13,color:C.tx,outline:'none'}}/>
@@ -445,21 +512,52 @@ function Contacts(){
         style={{padding:'9px 16px',borderRadius:12,border:filter===t?'none':`1px solid ${C.br}`,background:filter===t?C.p:'#fff',color:filter===t?'#fff':C.mt,fontWeight:500,fontSize:12,textTransform:'capitalize'}}>
         {t}
       </button>)}
+      <select value={sourceFilter} onChange={e=>pickSource(e.target.value)} title="Origem"
+        style={{padding:'9px 12px',borderRadius:12,border:`1px solid ${sourceFilter?C.p:C.br}`,background:'#fff',color:sourceFilter?C.p:C.mt,fontWeight:500,fontSize:12,outline:'none'}}>
+        <option value="">Origem: Todas</option>
+        {sourceOpts.map(s=><option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+      </select>
     </div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
+    {loading?<div style={{padding:40,textAlign:'center',color:C.mt,fontSize:13}}>Carregando...</div>
+    :list.length===0?<div style={{padding:40,textAlign:'center',color:C.mt,fontSize:13}}>Nenhum contato encontrado.</div>
+    :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
       {list.map(c=><div key={c.id} style={{background:'#fff',borderRadius:18,padding:18,border:`1px solid ${C.br}`}}>
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
-          <Av name={c.name} sz={44} online={c.online}/>
-          <div style={{minWidth:0}}><p style={{fontWeight:600,fontSize:13,color:C.tx}}>{c.name}</p><p style={{fontSize:12,color:C.mt}}>{c.phone}</p></div>
+          <Av name={c.name||c.phone} sz={44}/>
+          <div style={{minWidth:0}}><p style={{fontWeight:600,fontSize:13,color:C.tx,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{c.name||'Sem nome'}</p><p style={{fontSize:12,color:C.mt}}>{c.phone}</p></div>
         </div>
         <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
-          {c.tags.map(t=>{const s=TAG_COL[t]||{bg:C.bg,c:C.mt};return <span key={t} style={{fontSize:11,padding:'3px 8px',borderRadius:20,background:s.bg,color:s.c,textTransform:'capitalize'}}>{t}</span>;})}
+          {c.source&&<span style={{fontSize:11,padding:'3px 8px',borderRadius:20,background:C.bg,color:C.mt,textTransform:'capitalize'}}>{c.source}</span>}
+          {(c.tags||[]).map(t=>{const s=TAG_COL[t]||{bg:C.bg,c:C.mt};return <span key={t} style={{fontSize:11,padding:'3px 8px',borderRadius:20,background:s.bg,color:s.c,textTransform:'capitalize'}}>{t}</span>;})}
         </div>
         <button style={{width:'100%',padding:8,borderRadius:10,border:'none',background:C.p+'18',color:C.p,fontWeight:500,fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.p} strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Enviar mensagem
         </button>
       </div>)}
-    </div>
+    </div>}
+
+    {/* Modal de importação de contatos */}
+    {showImport&&<div onClick={()=>!importing&&setShowImport(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:20,padding:28,width:440,maxWidth:'95vw'}}>
+        <h3 style={{fontWeight:700,color:C.tx,marginBottom:14,fontSize:17}}>Importar Contatos</h3>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Nome da origem</label>
+        <input value={importSource} onChange={e=>setImportSource(e.target.value)} placeholder="Ex: fidelidade, leads_instagram" style={{...inpS,marginBottom:14}}/>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Arquivo (.csv ou .xlsx)</label>
+        <input type="file" accept=".csv,.xlsx" onChange={e=>setImportFile(e.target.files[0]||null)} style={{...inpS,marginBottom:10}}/>
+        <p style={{fontSize:12,color:C.mt,marginBottom:16}}>Colunas aceitas: phone (obrigatório), name. Contatos já existentes serão ignorados.</p>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:10}}>
+          <button onClick={()=>{setShowImport(false);setImportSource('');setImportFile(null);}} disabled={importing} style={{padding:'9px 20px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',color:C.tx,fontWeight:500,fontSize:13}}>Cancelar</button>
+          <button onClick={doImport} disabled={importing||!importFile} style={{padding:'9px 20px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,opacity:importing||!importFile?.6:1}}>
+            {importing?'Importando...':'Importar'}
+          </button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Toast */}
+    {toast&&<div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:toast.ok?C.tx:'#FF5252',color:'#fff',padding:'11px 20px',borderRadius:12,fontSize:13,fontWeight:500,boxShadow:'0 8px 24px rgba(0,0,0,.25)',zIndex:2000}}>
+      {toast.ok?'✅ ':'❌ '}{toast.msg}
+    </div>}
   </div>;
 }
 
@@ -2053,7 +2151,7 @@ function Layout({user,token,onLogout}){
         {page==='crm'           &&<CRM token={token} wabaId={wabaId}/>}
         {page==='campaigns'     &&<Campaigns token={token} wabaId={wabaId}/>}
         {page==='templates'     &&<Templates token={token} wabaId={wabaId}/>}
-        {page==='contacts'      &&<Contacts/>}
+        {page==='contacts'      &&<Contacts token={token} wabaId={wabaId}/>}
         {page==='connect'       &&<Connect token={token}/>}
         {page==='integracoes'   &&<Integracoes token={token}/>}
         {page==='settings'      &&<Settings user={user}/>}

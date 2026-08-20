@@ -1,6 +1,9 @@
 
 
 const prisma = require('../utils/prisma');
+const { parse } = require('csv-parse/sync');
+const XLSX = require('xlsx');
+const { normalizePhone } = require('./multipedidosController');
 
 // ─── Listar contatos ──────────────────────────────────────────────────────────
 
@@ -114,4 +117,106 @@ const getContact = async (req, res) => {
   }
 };
 
-module.exports = { listContacts, upsertContact, getContact };
+// ─── Importar contatos via arquivo CSV/XLSX ───────────────────────────────────
+
+// Mapeamento de cabeçalhos aceitos (case-insensitive) → campo interno
+const COLUMN_MAP = {
+  phone: 'phone', telefone: 'phone', celular: 'phone', whatsapp: 'phone',
+  name: 'name', nome: 'name',
+  source: 'source', origem: 'source',
+};
+
+function mapRow(raw) {
+  const row = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const field = COLUMN_MAP[String(key).trim().toLowerCase()];
+    if (field && row[field] === undefined) row[field] = value;
+  }
+  return row;
+}
+
+function parseFileRows(file) {
+  const name = (file.originalname || '').toLowerCase();
+  if (name.endsWith('.xlsx')) {
+    const wb = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  }
+  // CSV — detecta delimitador (planilhas BR costumam exportar com ";")
+  const text = file.buffer.toString('utf8');
+  const firstLine = text.split(/\r?\n/, 1)[0] || '';
+  const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+  return parse(text, { columns: true, bom: true, trim: true, skip_empty_lines: true, delimiter, relax_column_count: true });
+}
+
+const importContacts = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Envie um arquivo .csv ou .xlsx no campo "file".' });
+    }
+
+    let rawRows;
+    try {
+      rawRows = parseFileRows(req.file);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Não foi possível ler o arquivo: ' + e.message });
+    }
+    if (!rawRows.length) {
+      return res.status(400).json({ success: false, message: 'O arquivo não contém linhas de dados.' });
+    }
+
+    const defaultSource = (req.body.source || '').trim() || 'importado';
+    const errors = [];
+    let skipped = 0;
+
+    // Monta lista válida, deduplicando telefones repetidos dentro do próprio arquivo
+    const seen = new Set();
+    const candidates = [];
+    rawRows.forEach((raw, i) => {
+      const line = i + 2; // +1 do cabeçalho, +1 índice 1-based
+      const row = mapRow(raw);
+      if (!row.phone || !String(row.phone).trim()) {
+        errors.push({ line, message: 'Telefone ausente.' });
+        return;
+      }
+      const phone = normalizePhone(row.phone);
+      if (phone.length < 10) {
+        errors.push({ line, message: `Telefone inválido: "${row.phone}"` });
+        return;
+      }
+      if (seen.has(phone)) { skipped++; return; }
+      seen.add(phone);
+      candidates.push({
+        phone,
+        name: row.name ? String(row.name).trim() || null : null,
+        source: (row.source && String(row.source).trim()) || defaultSource,
+      });
+    });
+
+    // Ignora quem já existe na base (não sobrescreve)
+    const existing = candidates.length
+      ? await prisma.crmCustomer.findMany({
+          where: { wabaAccountId, phone: { in: candidates.map(c => c.phone) } },
+          select: { phone: true },
+        })
+      : [];
+    const existingPhones = new Set(existing.map(e => e.phone));
+    const toCreate = candidates.filter(c => !existingPhones.has(c.phone));
+    skipped += candidates.length - toCreate.length;
+
+    if (toCreate.length) {
+      await prisma.crmCustomer.createMany({
+        data: toCreate.map(c => ({ wabaAccountId, phone: c.phone, name: c.name, source: c.source, tags: [] })),
+        skipDuplicates: true,
+      });
+    }
+
+    return res.json({ success: true, imported: toCreate.length, skipped, errors });
+  } catch (error) {
+    console.error('[Contact] importContacts:', error);
+    return res.status(500).json({ success: false, message: 'Erro ao importar contatos.' });
+  }
+};
+
+module.exports = { listContacts, upsertContact, getContact, importContacts };

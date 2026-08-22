@@ -406,7 +406,9 @@ const testSend = async (req, res) => {
     };
 
     const params = Array.isArray(templateParams) ? templateParams : [];
-    const testCtx = { trackingUrl: trackingUrlFor('test-preview') || template?.linkUrl || '' };
+    // Para test send usamos a linkUrl do template (URL real do negócio) como
+    // trackingUrl — evita enviar domínio desconhecido (Railway) que a Meta bloqueia.
+    const testCtx = template?.linkUrl ? { trackingUrl: template.linkUrl } : undefined;
     const finalMessage = template
       ? renderTemplateBody(template.bodyText, params, customer, testCtx)
       : buildMessage(message, customer);

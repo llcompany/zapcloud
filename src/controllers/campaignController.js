@@ -406,13 +406,14 @@ const testSend = async (req, res) => {
     };
 
     const params = Array.isArray(templateParams) ? templateParams : [];
+    const testCtx = { trackingUrl: trackingUrlFor('test-preview') || template?.linkUrl || '' };
     const finalMessage = template
-      ? renderTemplateBody(template.bodyText, params, customer)
+      ? renderTemplateBody(template.bodyText, params, customer, testCtx)
       : buildMessage(message, customer);
 
     const response = await axios.post(
       `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
-      buildMetaPayload({ to: normalized, template, templateParams: params, customer, fallbackText: finalMessage }),
+      buildMetaPayload({ to: normalized, template, templateParams: params, customer, ctx: testCtx, fallbackText: finalMessage }),
       { headers: { Authorization: `Bearer ${wabaAccount.accessToken}`, 'Content-Type': 'application/json' } }
     );
 

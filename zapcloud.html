@@ -1670,11 +1670,14 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
     return ()=>window.removeEventListener('keydown',h);
   },[onClose]);
 
+  const [convLoading,setConvLoading]=useState(false);
   // Busca conversões quando a campanha está concluída ou já tem envios
   useEffect(()=>{
     if(!campaign?.id||!token||!wabaId||!campaign.sentCount) return;
+    setConvLoading(true);
     fetch(`${API}/api/crm/${wabaId}/campaigns/${campaign.id}/conversions?windowHours=720`,{headers:{Authorization:`Bearer ${token}`}})
-      .then(r=>r.json()).then(d=>{if(d.success)setConv(d.data);}).catch(()=>{});
+      .then(r=>r.json()).then(d=>{if(d.success)setConv(d.data);}).catch(()=>{})
+      .finally(()=>setConvLoading(false));
   },[campaign?.id,campaign?.sentCount]);
 
   if(!campaign) return null;
@@ -1757,24 +1760,28 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
           <p style={{fontSize:11,color:C.mt,marginTop:10}}>Defina o custo por conversa no template para acompanhar gasto.</p>}
       </div>
 
-      {/* Conversões */}
-      {conv!=null&&(
+      {/* Conversões — sempre visível quando campanha tem envios */}
+      {!!c.sentCount&&(
         <div style={{background:'#F0FFF4',borderRadius:14,padding:16,marginTop:16,border:'1px solid #C6F6D5'}}>
           <p style={{fontSize:13,fontWeight:600,color:'#276749',marginBottom:12}}>🛒 Vendas Geradas</p>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-            <div style={{textAlign:'center'}}>
-              <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversions}</div>
-              <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>pedidos realizados</div>
+          {(convLoading||conv==null)?(
+            <p style={{fontSize:12,color:'#68D391',textAlign:'center',padding:'8px 0'}}>Carregando...</p>
+          ):(
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversions}</div>
+                <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>pedidos realizados</div>
+              </div>
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversionRate}%</div>
+                <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>taxa de conversão</div>
+              </div>
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:22,fontWeight:800,color:'#276749'}}>{brl(conv.revenue)}</div>
+                <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>receita gerada</div>
+              </div>
             </div>
-            <div style={{textAlign:'center'}}>
-              <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversionRate}%</div>
-              <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>taxa de conversão</div>
-            </div>
-            <div style={{textAlign:'center'}}>
-              <div style={{fontSize:22,fontWeight:800,color:'#276749'}}>{brl(conv.revenue)}</div>
-              <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>receita gerada</div>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>

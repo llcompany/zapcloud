@@ -2228,7 +2228,7 @@ function CampaignRelatorio({token,wabaId}){
   useEffect(()=>{load();},[token,wabaId]);
 
   const cards=[
-    {label:'Disparos',      value:data?.totalDisparos??'—',  fmt:v=>v,                          icon:'📤', color:C.p},
+    {label:'Mensagens Enviadas', value:data?.totalDisparos??'—', fmt:v=>v,                       icon:'📤', color:C.p},
     {label:'Valor Gasto',   value:data?.totalGasto??null,    fmt:v=>brl(v),                     icon:'💸', color:'#FF7043'},
     {label:'Vendas Geradas',value:data?.vendasGeradas??'—',  fmt:v=>v,                          icon:'🛒', color:'#276749'},
     {label:'Receita Gerada',value:data?.receitaGerada??null, fmt:v=>brl(v),                     icon:'💰', color:'#276749'},

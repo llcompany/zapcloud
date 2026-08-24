@@ -394,7 +394,7 @@ const getCampaignReport = async (req, res) => {
       select: { id: true, sentCount: true, totalCost: true },
     });
 
-    const totalDisparos = campaigns.length;
+    const totalDisparos = campaigns.reduce((s, c) => s + (c.sentCount || 0), 0);
     const totalGasto    = campaigns.reduce((s, c) => s + (c.totalCost || 0), 0);
     const campaignIds   = campaigns.map(c => c.id);
 

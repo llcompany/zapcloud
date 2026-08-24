@@ -2196,12 +2196,89 @@ const NAV=[
   {id:'conversations',label:'Conversas',            icon:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"},
   {id:'crm',          label:'CRM',                 icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
   {id:'campaigns',    label:'Campanhas',            icon:"M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"},
+  {id:'relatorio',    label:'Relatório',            icon:"M18 20V10M12 20V4M6 20v-6"},
   {id:'templates',    label:'Templates',            icon:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
   {id:'contacts',     label:'Contatos',             icon:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"},
   {id:'connect',      label:'Conectar WhatsApp',    icon:"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"},
   {id:'integracoes',  label:'Integrações',          icon:"M4 6h16M4 10h16M4 14h16M4 18h16"},
   {id:'settings',     label:'Configurações',        icon:"M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"},
 ];
+/* ══════════════════════════ RELATÓRIO DE CAMPANHAS ══════════════════════════ */
+function CampaignRelatorio({token,wabaId}){
+  const today=new Date();
+  const firstDay=new Date(today.getFullYear(),today.getMonth(),1).toISOString().slice(0,10);
+  const todayStr=today.toISOString().slice(0,10);
+  const [startDate,setStartDate]=useState(firstDay);
+  const [endDate,setEndDate]=useState(todayStr);
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(false);
+
+  const load=async()=>{
+    if(!token||!wabaId)return;
+    setLoading(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns-report?startDate=${startDate}&endDate=${endDate}`,
+        {headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) setData(d.data);
+    }catch(e){}
+    setLoading(false);
+  };
+
+  useEffect(()=>{load();},[token,wabaId]);
+
+  const cards=[
+    {label:'Disparos',      value:data?.totalDisparos??'—',  fmt:v=>v,                          icon:'📤', color:C.p},
+    {label:'Valor Gasto',   value:data?.totalGasto??null,    fmt:v=>brl(v),                     icon:'💸', color:'#FF7043'},
+    {label:'Vendas Geradas',value:data?.vendasGeradas??'—',  fmt:v=>v,                          icon:'🛒', color:'#276749'},
+    {label:'Receita Gerada',value:data?.receitaGerada??null, fmt:v=>brl(v),                     icon:'💰', color:'#276749'},
+  ];
+
+  return <div style={{padding:28,maxWidth:860,margin:'0 auto'}}>
+    <h1 style={{fontSize:22,fontWeight:700,color:C.tx,marginBottom:4}}>Relatório</h1>
+    <p style={{fontSize:13,color:C.mt,marginBottom:24}}>Visão geral dos resultados das campanhas no período selecionado.</p>
+
+    {/* Filtro de data */}
+    <div style={{display:'flex',alignItems:'flex-end',gap:12,marginBottom:28,background:'#fff',padding:18,borderRadius:16,border:`1px solid ${C.br}`}}>
+      <div>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Data inicial</label>
+        <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)}
+          style={{padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,outline:'none'}}/>
+      </div>
+      <div>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Data final</label>
+        <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}
+          style={{padding:'9px 12px',borderRadius:10,border:`1px solid ${C.br}`,fontSize:13,color:C.tx,outline:'none'}}/>
+      </div>
+      <button onClick={load} disabled={loading}
+        style={{padding:'9px 22px',borderRadius:10,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,cursor:'pointer',opacity:loading?.7:1}}>
+        {loading?'Buscando...':'Buscar'}
+      </button>
+    </div>
+
+    {/* Cards */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:16}}>
+      {cards.map(c=>(
+        <div key={c.label} style={{background:'#fff',borderRadius:16,padding:24,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:18}}>
+          <div style={{width:52,height:52,borderRadius:14,background:c.color+'15',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>
+            {c.icon}
+          </div>
+          <div>
+            <p style={{fontSize:12,color:C.mt,marginBottom:4}}>{c.label}</p>
+            <p style={{fontSize:28,fontWeight:800,color:c.color,lineHeight:1}}>
+              {data==null&&loading?'...':(typeof c.value==='number'?c.fmt(c.value):c.value)}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {data&&<p style={{fontSize:11,color:C.mt,marginTop:16,textAlign:'center'}}>
+      Vendas e receita: pedidos realizados em até 30 dias após o recebimento do disparo.
+    </p>}
+  </div>;
+}
+
 function Layout({user,token,onLogout}){
   const [page,setPage]=useState('dashboard');
   const [wabaId,setWabaId]=useState(null);
@@ -2253,6 +2330,7 @@ function Layout({user,token,onLogout}){
         {page==='conversations' &&<Conversations token={token}/>}
         {page==='crm'           &&<CRM token={token} wabaId={wabaId}/>}
         {page==='campaigns'     &&<Campaigns token={token} wabaId={wabaId}/>}
+        {page==='relatorio'     &&<CampaignRelatorio token={token} wabaId={wabaId}/>}
         {page==='templates'     &&<Templates token={token} wabaId={wabaId}/>}
         {page==='contacts'      &&<Contacts token={token} wabaId={wabaId}/>}
         {page==='connect'       &&<Connect token={token}/>}

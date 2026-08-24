@@ -375,6 +375,62 @@ const trackClick = async (req, res) => {
   }
 };
 
+// ─── Relatório geral de campanhas ─────────────────────────────────────────────
+const getCampaignReport = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 86400000);
+    const end   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+
+    // Campanhas disparadas no período
+    const campaigns = await prisma.campaign.findMany({
+      where: {
+        wabaAccountId,
+        startedAt: { gte: start, lte: end },
+        status: { in: ['COMPLETED', 'RUNNING'] },
+      },
+      select: { id: true, sentCount: true, totalCost: true },
+    });
+
+    const totalDisparos = campaigns.length;
+    const totalGasto    = campaigns.reduce((s, c) => s + (c.totalCost || 0), 0);
+    const campaignIds   = campaigns.map(c => c.id);
+
+    let vendasGeradas = 0;
+    let receitaGerada = 0;
+
+    if (campaignIds.length > 0) {
+      // Pedidos realizados por clientes que receberam alguma dessas campanhas,
+      // dentro de 30 dias após o envio
+      const idList = campaignIds.map(id => `'${id}'`).join(',');
+      const rows = await prisma.$queryRawUnsafe(`
+        SELECT
+          COUNT(DISTINCT co.id)::int   AS vendas,
+          COALESCE(SUM(co.total), 0)::float AS receita
+        FROM campaign_executions ce
+        JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+        WHERE ce."campaignId" IN (${idList})
+          AND ce.status = 'SENT'
+          AND ce."sentAt" IS NOT NULL
+          AND co."orderedAt" > ce."sentAt"
+          AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+      `);
+      vendasGeradas = Number(rows[0]?.vendas) || 0;
+      receitaGerada = Number(rows[0]?.receita) || 0;
+    }
+
+    res.json({
+      success: true,
+      data: { totalDisparos, totalGasto, vendasGeradas, receitaGerada, startDate: start, endDate: end },
+    });
+  } catch (err) {
+    console.error('[Campaign] Erro no relatório:', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao gerar relatório.' });
+  }
+};
+
 // ─── Conversões da campanha ────────────────────────────────────────────────────
 // Cruza execuções enviadas com pedidos realizados após o envio dentro de uma janela.
 const getCampaignConversions = async (req, res) => {
@@ -479,4 +535,4 @@ const testSend = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions };
+module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport };

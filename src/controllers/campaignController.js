@@ -385,18 +385,19 @@ const getCampaignConversions = async (req, res) => {
     const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
 
-    const result = await prisma.$queryRaw`
+    // windowHours já é inteiro validado (parseInt + Math.min), seguro embutir no SQL
+    const result = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(DISTINCT ce."crmCustomerId")::int  AS conversions,
         COALESCE(SUM(co.total), 0)::float        AS revenue
       FROM campaign_executions ce
       JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
-      WHERE ce."campaignId" = ${campaignId}
+      WHERE ce."campaignId" = $1
         AND ce.status = 'SENT'
         AND ce."sentAt" IS NOT NULL
         AND co."orderedAt" > ce."sentAt"
-        AND co."orderedAt" < ce."sentAt" + (${windowHours} * INTERVAL '1 hour')
-    `;
+        AND co."orderedAt" < ce."sentAt" + INTERVAL '${windowHours} hours'
+    `, campaignId);
 
     const row = result[0] || {};
     const conversions = Number(row.conversions) || 0;

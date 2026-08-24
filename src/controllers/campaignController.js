@@ -375,6 +375,49 @@ const trackClick = async (req, res) => {
   }
 };
 
+// ─── Conversões da campanha ────────────────────────────────────────────────────
+// Cruza execuções enviadas com pedidos realizados após o envio dentro de uma janela.
+const getCampaignConversions = async (req, res) => {
+  try {
+    const { wabaAccountId, campaignId } = req.params;
+    const windowHours = Math.min(parseInt(req.query.windowHours) || 48, 720);
+
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+
+    const result = await prisma.$queryRaw`
+      SELECT
+        COUNT(DISTINCT ce."crmCustomerId")::int  AS conversions,
+        COALESCE(SUM(co.total), 0)::float        AS revenue
+      FROM campaign_executions ce
+      JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+      WHERE ce."campaignId" = ${campaignId}
+        AND ce.status = 'SENT'
+        AND ce."sentAt" IS NOT NULL
+        AND co."orderedAt" > ce."sentAt"
+        AND co."orderedAt" < ce."sentAt" + (${windowHours} * INTERVAL '1 hour')
+    `;
+
+    const row = result[0] || {};
+    const conversions = Number(row.conversions) || 0;
+    const revenue = Number(row.revenue) || 0;
+    const sent = campaign.sentCount || 0;
+
+    res.json({
+      success: true,
+      data: {
+        conversions,
+        revenue,
+        conversionRate: sent > 0 ? Math.round((conversions / sent) * 100) : 0,
+        windowHours,
+      },
+    });
+  } catch (err) {
+    console.error('[Campaign] Erro ao buscar conversões:', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao buscar conversões.' });
+  }
+};
+
 // ─── Envio de teste ───────────────────────────────────────────────────────────
 const testSend = async (req, res) => {
   try {
@@ -435,4 +478,4 @@ const testSend = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick };
+module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions };

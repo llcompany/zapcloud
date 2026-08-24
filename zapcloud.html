@@ -1673,7 +1673,7 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
   // Busca conversões quando a campanha está concluída ou já tem envios
   useEffect(()=>{
     if(!campaign?.id||!token||!wabaId||!campaign.sentCount) return;
-    fetch(`${API}/api/crm/${wabaId}/campaigns/${campaign.id}/conversions`,{headers:{Authorization:`Bearer ${token}`}})
+    fetch(`${API}/api/crm/${wabaId}/campaigns/${campaign.id}/conversions?windowHours=720`,{headers:{Authorization:`Bearer ${token}`}})
       .then(r=>r.json()).then(d=>{if(d.success)setConv(d.data);}).catch(()=>{});
   },[campaign?.id,campaign?.sentCount]);
 
@@ -1775,7 +1775,7 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
               <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>receita gerada</div>
             </div>
           </div>
-          <p style={{fontSize:11,color:'#4A9568',marginTop:10}}>Clientes que receberam o disparo e fizeram um novo pedido em até {conv.windowHours}h após o envio.</p>
+          <p style={{fontSize:11,color:'#4A9568',marginTop:10}}>Clientes que receberam o disparo e fizeram um novo pedido em até 30 dias após o envio.</p>
         </div>
       )}
     </div>

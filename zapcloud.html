@@ -1757,7 +1757,8 @@ function Campaigns({token,wabaId}){
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});
+  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});
+  const [sourceDropOpen,setSourceDropOpen]=useState(false);
   const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
@@ -1836,7 +1837,7 @@ function Campaigns({token,wabaId}){
   };
 
   // Origem só entra quando o campo está habilitado (com "todos" ele fica desabilitado na tela)
-  const buildSourceFilter=()=>form.segmentFilter.allCustomers?null:(form.sourceFilter||null);
+  const buildSourceFilter=()=>form.segmentFilter.allCustomers?null:(form.sourceFilter.length?form.sourceFilter:null);
 
   const doPreview=async()=>{
     try{
@@ -1858,7 +1859,7 @@ function Campaigns({token,wabaId}){
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf,sourceFilter:buildSourceFilter()})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:'',segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
@@ -1970,23 +1971,49 @@ function Campaigns({token,wabaId}){
               <p style={{fontSize:11,color:C.mt}}>Ignora os filtros abaixo e envia para a base inteira.</p>
             </div>
           </label>
-          <div style={{marginBottom:14,opacity:todos?.45:1}}>
+          <div style={{marginBottom:14,opacity:todos?.45:1,position:'relative'}}>
             <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Origem dos contatos</label>
-            <select disabled={todos} value={form.sourceFilter}
-              onChange={e=>{setPreview(null);setForm(p=>({...p,sourceFilter:e.target.value}));}} style={inp2}>
-              <option value="">Todas as origens</option>
-              <option value="multipedidos">Multipedidos</option>
-              <option value="fidelidade_10x">Fidelidade 10x</option>
-              <option value="fidelidade_20x">Fidelidade 20x</option>
-              <option value="fidelidade_30x">Fidelidade 30x</option>
-              <option value="fidelidade_40x">Fidelidade 40x</option>
-              <option value="fidelidade_50x">Fidelidade 50x</option>
-              <option value="fidelidade_60x">Fidelidade 60x</option>
-              <option value="fidelidade_70x">Fidelidade 70x</option>
-              <option value="fidelidade_80x">Fidelidade 80x</option>
-              <option value="fidelidade_90x">Fidelidade 90x</option>
-              <option value="fidelidade_100x">Fidelidade 100x+</option>
-            </select>
+            {(()=>{
+              const srcOpts=[
+                {v:'multipedidos',l:'Multipedidos'},
+                {v:'fidelidade_10x',l:'Fidelidade 10x'},{v:'fidelidade_20x',l:'Fidelidade 20x'},
+                {v:'fidelidade_30x',l:'Fidelidade 30x'},{v:'fidelidade_40x',l:'Fidelidade 40x'},
+                {v:'fidelidade_50x',l:'Fidelidade 50x'},{v:'fidelidade_60x',l:'Fidelidade 60x'},
+                {v:'fidelidade_70x',l:'Fidelidade 70x'},{v:'fidelidade_80x',l:'Fidelidade 80x'},
+                {v:'fidelidade_90x',l:'Fidelidade 90x'},{v:'fidelidade_100x',l:'Fidelidade 100x+'},
+              ];
+              const sel=form.sourceFilter||[];
+              const toggleSrc=(v)=>{
+                setPreview(null);
+                setForm(p=>({...p,sourceFilter:p.sourceFilter.includes(v)?p.sourceFilter.filter(x=>x!==v):[...p.sourceFilter,v]}));
+              };
+              const label=sel.length===0?'Todas as origens':sel.length===1?srcOpts.find(o=>o.v===sel[0])?.l||sel[0]:`${sel.length} origens selecionadas`;
+              return(
+                <div style={{position:'relative'}}>
+                  <div onClick={()=>{if(!todos)setSourceDropOpen(p=>!p);}} style={{...inp2,display:'flex',justifyContent:'space-between',alignItems:'center',cursor:todos?'not-allowed':'pointer',color:sel.length?C.p:C.mt,fontWeight:sel.length?600:400,userSelect:'none'}}>
+                    <span>{label}</span>
+                    <span style={{fontSize:10,color:C.mt}}>{sourceDropOpen?'▲':'▼'}</span>
+                  </div>
+                  {sourceDropOpen&&!todos&&(
+                    <div style={{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:`1px solid ${C.br}`,borderRadius:12,boxShadow:'0 4px 16px rgba(0,0,0,0.10)',zIndex:99,maxHeight:220,overflowY:'auto',marginTop:4}}>
+                      {srcOpts.map(o=>(
+                        <label key={o.v} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',cursor:'pointer',background:sel.includes(o.v)?C.p+'12':'transparent',transition:'background .15s'}}
+                          onMouseEnter={e=>e.currentTarget.style.background=sel.includes(o.v)?C.p+'20':C.bg}
+                          onMouseLeave={e=>e.currentTarget.style.background=sel.includes(o.v)?C.p+'12':'transparent'}>
+                          <input type="checkbox" checked={sel.includes(o.v)} onChange={()=>toggleSrc(o.v)}
+                            style={{width:15,height:15,accentColor:C.p,cursor:'pointer'}}/>
+                          <span style={{fontSize:13,color:sel.includes(o.v)?C.p:C.tx,fontWeight:sel.includes(o.v)?600:400}}>{o.l}</span>
+                        </label>
+                      ))}
+                      <div style={{padding:'8px 14px',borderTop:`1px solid ${C.br}`}}>
+                        <button onClick={()=>{setPreview(null);setForm(p=>({...p,sourceFilter:[]}));setSourceDropOpen(false);}}
+                          style={{fontSize:11,color:C.mt,background:'none',border:'none',cursor:'pointer',padding:0}}>Limpar seleção</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,opacity:todos?.45:1,pointerEvents:todos?'none':'auto'}}>
             <div>

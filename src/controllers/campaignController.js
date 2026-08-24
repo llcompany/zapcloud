@@ -68,7 +68,14 @@ function buildFilter(wabaAccountId, segmentFilter) {
 
   // Origem se aplica antes do atalho de "todos": permite disparar para
   // toda a base de uma origem específica (ex: todos de fidelidade_10x).
-  if (sourceFilter) where.source = sourceFilter;
+  // Aceita string (legado) ou array (multi-select).
+  if (sourceFilter) {
+    if (Array.isArray(sourceFilter) && sourceFilter.length > 0) {
+      where.source = sourceFilter.length === 1 ? sourceFilter[0] : { in: sourceFilter };
+    } else if (typeof sourceFilter === 'string') {
+      where.source = sourceFilter;
+    }
+  }
 
   // "Todos os clientes" descarta o restante da segmentação.
   // isActive permanece porque a tela de CRM também filtra por ele: assim

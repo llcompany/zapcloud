@@ -1760,7 +1760,7 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
       {/* Conversões */}
       {conv!=null&&(
         <div style={{background:'#F0FFF4',borderRadius:14,padding:16,marginTop:16,border:'1px solid #C6F6D5'}}>
-          <p style={{fontSize:13,fontWeight:600,color:'#276749',marginBottom:12}}>🛒 Conversões estimadas (últimas {conv.windowHours}h)</p>
+          <p style={{fontSize:13,fontWeight:600,color:'#276749',marginBottom:12}}>🛒 Conversões estimadas</p>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
             <div style={{textAlign:'center'}}>
               <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversions}</div>
@@ -1775,7 +1775,6 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
               <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>receita gerada</div>
             </div>
           </div>
-          <p style={{fontSize:11,color:'#4A9568',marginTop:10}}>Clientes que receberam o disparo e fizeram um novo pedido em até 30 dias após o envio.</p>
         </div>
       )}
     </div>

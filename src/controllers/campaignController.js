@@ -70,10 +70,15 @@ function buildFilter(wabaAccountId, segmentFilter) {
   // toda a base de uma origem específica (ex: todos de fidelidade_10x).
   // Aceita string (legado) ou array (multi-select).
   if (sourceFilter) {
-    if (Array.isArray(sourceFilter) && sourceFilter.length > 0) {
-      where.source = sourceFilter.length === 1 ? sourceFilter[0] : { in: sourceFilter };
-    } else if (typeof sourceFilter === 'string') {
-      where.source = sourceFilter;
+    let sf = sourceFilter;
+    // Deserializa JSON string gravado no banco (ex: '["multipedidos","fidelidade"]')
+    if (typeof sf === 'string' && sf.startsWith('[')) {
+      try { sf = JSON.parse(sf); } catch(e) {}
+    }
+    if (Array.isArray(sf) && sf.length > 0) {
+      where.source = sf.length === 1 ? sf[0] : { in: sf };
+    } else if (typeof sf === 'string') {
+      where.source = sf;
     }
   }
 
@@ -157,7 +162,7 @@ const createCampaign = async (req, res) => {
         templateId: template?.id || null,
         templateParams: params,
         segmentFilter: segmentFilter || {},
-        sourceFilter: source,
+        sourceFilter: Array.isArray(source) ? JSON.stringify(source) : source,
         totalRecipients,
       },
     });

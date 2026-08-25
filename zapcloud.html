@@ -1658,7 +1658,7 @@ function Templates({token,wabaId}){
 
 /* ══════════════════════════ RELATÓRIO DE CAMPANHA ══════════════════════════ */
 const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
-const brl=v=>v==null?'—':'R$ '+Number(v).toFixed(2);
+const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
 function CampaignReport({campaign,onClose,onRefresh,refreshing}){
   // conv vem embutido no objeto campaign (buscado junto no openReport)

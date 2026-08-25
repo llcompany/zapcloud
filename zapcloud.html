@@ -1660,8 +1660,9 @@ function Templates({token,wabaId}){
 const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
 const brl=v=>v==null?'—':'R$ '+Number(v).toFixed(2);
 
-function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
-  const [conv,setConv]=useState(null);
+function CampaignReport({campaign,onClose,onRefresh,refreshing}){
+  // conv vem embutido no objeto campaign (buscado junto no openReport)
+  const conv=campaign?.conv??null;
 
   // Fecha no Esc — modal sem isso prende o usuário no teclado
   useEffect(()=>{
@@ -1669,16 +1670,6 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
     window.addEventListener('keydown',h);
     return ()=>window.removeEventListener('keydown',h);
   },[onClose]);
-
-  const [convLoading,setConvLoading]=useState(false);
-  // Busca conversões quando a campanha está concluída ou já tem envios
-  useEffect(()=>{
-    if(!campaign?.id||!token||!wabaId||!campaign.sentCount) return;
-    setConvLoading(true);
-    fetch(`${API}/api/crm/${wabaId}/campaigns/${campaign.id}/conversions?windowHours=720`,{headers:{Authorization:`Bearer ${token}`}})
-      .then(r=>r.json()).then(d=>{if(d.success)setConv(d.data);}).catch(()=>{})
-      .finally(()=>setConvLoading(false));
-  },[campaign?.id,campaign?.sentCount]);
 
   if(!campaign) return null;
   const c=campaign;
@@ -1764,7 +1755,7 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,token,wabaId}){
       {!!c.sentCount&&(
         <div style={{background:'#F0FFF4',borderRadius:14,padding:16,marginTop:16,border:'1px solid #C6F6D5'}}>
           <p style={{fontSize:13,fontWeight:600,color:'#276749',marginBottom:12}}>🛒 Vendas Geradas</p>
-          {(convLoading||conv==null)?(
+          {conv==null?(
             <p style={{fontSize:12,color:'#68D391',textAlign:'center',padding:'8px 0'}}>Carregando...</p>
           ):(
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
@@ -1833,9 +1824,13 @@ function Campaigns({token,wabaId}){
   const openReport=async(id)=>{
     setReportId(id);setLoadingReport(true);
     try{
-      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${id}`,{headers:{Authorization:`Bearer ${token}`}});
-      const d=await r.json();
-      if(d.success) setReport(d.data); else alert('Erro: '+d.message);
+      const [rCamp,rConv]=await Promise.all([
+        fetch(`${API}/api/crm/${wabaId}/campaigns/${id}`,{headers:{Authorization:`Bearer ${token}`}}),
+        fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/conversions?windowHours=720`,{headers:{Authorization:`Bearer ${token}`}}),
+      ]);
+      const [dCamp,dConv]=await Promise.all([rCamp.json(),rConv.json()]);
+      if(dCamp.success) setReport({...dCamp.data, conv: dConv.success?dConv.data:null});
+      else alert('Erro: '+dCamp.message);
     }catch(e){alert('Erro: '+e.message);}
     setLoadingReport(false);
   };
@@ -2193,7 +2188,7 @@ function Campaigns({token,wabaId}){
        </div>)}
      </div>}
     {reportId&&!report&&loadingReport&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,color:'#fff',fontSize:13}}>Carregando relatório...</div>}
-    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport} token={token} wabaId={wabaId}/>}
+    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport}/>}
   </div>;
 }
 

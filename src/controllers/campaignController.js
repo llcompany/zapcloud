@@ -389,12 +389,15 @@ const getCampaignReport = async (req, res) => {
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 86400000);
     const end   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
 
-    // Campanhas disparadas no período
+    // Campanhas disparadas no período (startedAt ou createdAt dentro do range)
     const campaigns = await prisma.campaign.findMany({
       where: {
         wabaAccountId,
-        startedAt: { gte: start, lte: end },
         status: { in: ['COMPLETED', 'RUNNING'] },
+        OR: [
+          { startedAt: { gte: start, lte: end } },
+          { startedAt: null, createdAt: { gte: start, lte: end } },
+        ],
       },
       select: { id: true, sentCount: true, totalCost: true },
     });

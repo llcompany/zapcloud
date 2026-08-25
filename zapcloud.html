@@ -2223,7 +2223,8 @@ function CampaignRelatorio({token,wabaId}){
         {headers:{Authorization:`Bearer ${token}`}});
       const d=await r.json();
       if(d.success) setData(d.data);
-    }catch(e){}
+      else console.error('[Relatório] erro API:', d.message);
+    }catch(e){console.error('[Relatório] fetch error:',e);}
     setLoading(false);
   };
 

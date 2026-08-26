@@ -16,6 +16,7 @@ const campaignRoutes     = require('./routes/campaigns');
 const waBusinessRoutes   = require('./routes/waBusiness');
 const multipedidosRoutes = require('./routes/multipedidos');
 const dashboardRoutes    = require('./routes/dashboard');
+const maintenanceRoutes  = require('./routes/maintenance');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -80,6 +81,7 @@ app.use('/api/campaigns',    campaignRoutes);
 app.use('/api/wa-business',  waBusinessRoutes);
 app.use('/api/multipedidos', multipedidosRoutes);
 app.use('/api/dashboard',    dashboardRoutes);
+app.use('/internal',         maintenanceRoutes);
 
 app.get('/health', (req, res) => {
   res.json({

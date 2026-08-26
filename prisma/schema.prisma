@@ -227,6 +227,8 @@ model CustomerOrder {
 
   crmCustomer   CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
 
+  // Mesmo pedido reentregue pelo webhook não duplica (externalId null fica de fora)
+  @@unique([crmCustomerId, externalId])
   // Queries de conversão cruzam pedidos por cliente e janela de orderedAt
   @@index([crmCustomerId])
   @@index([orderedAt])

@@ -102,17 +102,36 @@ async function receiveOrder(req, res) {
       console.log('[Multipedidos] Novo cliente criado: ' + phone);
     }
 
-    await prisma.customerOrder.create({
-      data: {
-        crmCustomerId: crmCustomer.id,
-        wabaAccountId: wabaAccount.id,
-        externalId:    String(order.id || ''),
-        total:         order.total,
-        items:         order.items || [],
-        source:        'multipedidos',
-        orderedAt:     new Date(),
-      },
-    });
+    // Upsert pela chave (crmCustomerId, externalId): webhook reentregue não duplica o pedido.
+    // Pedido sem id externo entra com externalId null (nulls não colidem no unique) via create simples.
+    const externalId = order.id ? String(order.id) : null;
+    if (externalId) {
+      await prisma.customerOrder.upsert({
+        where: { crmCustomerId_externalId: { crmCustomerId: crmCustomer.id, externalId } },
+        update: { total: order.total, items: order.items || [] },
+        create: {
+          crmCustomerId: crmCustomer.id,
+          wabaAccountId: wabaAccount.id,
+          externalId,
+          total:         order.total,
+          items:         order.items || [],
+          source:        'multipedidos',
+          orderedAt:     new Date(),
+        },
+      });
+    } else {
+      await prisma.customerOrder.create({
+        data: {
+          crmCustomerId: crmCustomer.id,
+          wabaAccountId: wabaAccount.id,
+          externalId:    null,
+          total:         order.total,
+          items:         order.items || [],
+          source:        'multipedidos',
+          orderedAt:     new Date(),
+        },
+      });
+    }
     console.log('[Multipedidos] Pedido salvo no historico: R$' + order.total.toFixed(2));
 
     res.json({ success: true, message: 'Pedido processado com sucesso.' });

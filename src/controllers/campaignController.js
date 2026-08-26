@@ -281,10 +281,23 @@ const executeCampaign = async (req, res) => {
 
     for (const customer of customers) {
       try {
-        // A execução é criada antes do envio porque o link rastreado precisa do id dela
-        const execution = await prisma.campaignExecution.create({
-          data: { campaignId, crmCustomerId: customer.id, message: '' },
-        });
+        // A execução é criada antes do envio porque o link rastreado precisa do id dela.
+        // O unique constraint (campaignId, crmCustomerId) garante que dois loops paralelos
+        // nunca conseguem criar duas execuções para o mesmo cliente — o segundo recebe P2002
+        // e cai no catch abaixo sem contar como falha de envio.
+        let execution;
+        try {
+          execution = await prisma.campaignExecution.create({
+            data: { campaignId, crmCustomerId: customer.id, message: '' },
+          });
+        } catch (dupErr) {
+          // P2002 = unique constraint violation → cliente já sendo/foi processado por outro loop
+          if (dupErr?.code === 'P2002') {
+            console.warn('[Campaign] Duplicata ignorada para', customer.phone);
+            continue;
+          }
+          throw dupErr;
+        }
         const ctx = { trackingUrl: trackingUrlFor(execution.id) };
 
         // Texto só para registro/auditoria — o envio real vai pelos `parameters`

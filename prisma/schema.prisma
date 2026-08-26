@@ -290,6 +290,8 @@ model CampaignExecution {
   campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   crmCustomer CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
 
+  // Garante que um cliente só receba uma execução por campanha (evita duplicatas em retomada paralela)
+  @@unique([campaignId, crmCustomerId])
   // O webhook busca a execução por waMessageId a cada status recebido
   @@index([waMessageId])
   @@map("campaign_executions")

@@ -51,9 +51,20 @@ async function receiveOrder(req, res) {
       where: { wabaAccountId: wabaAccount.id, phone },
     });
 
+    // Id externo do pedido — calculado cedo para detectar reentrega antes dos agregados
+    const externalId = order.id ? String(order.id) : null;
+
     let crmCustomer;
 
-    if (existing) {
+    // Webhook reentregue: o pedido já está no histórico → não incrementa agregados de novo
+    const isReplay = !!(existing && externalId && await prisma.customerOrder.findUnique({
+      where: { crmCustomerId_externalId: { crmCustomerId: existing.id, externalId } },
+    }));
+
+    if (isReplay) {
+      crmCustomer = existing;
+      console.log('[Multipedidos] Pedido ' + externalId + ' reentregue para ' + phone + ' — agregados preservados');
+    } else if (existing) {
       const newTotal  = existing.totalOrders + 1;
       const newSpent  = parseFloat(existing.totalSpent) + order.total;
       const newTicket = newSpent / newTotal;
@@ -104,7 +115,6 @@ async function receiveOrder(req, res) {
 
     // Upsert pela chave (crmCustomerId, externalId): webhook reentregue não duplica o pedido.
     // Pedido sem id externo entra com externalId null (nulls não colidem no unique) via create simples.
-    const externalId = order.id ? String(order.id) : null;
     if (externalId) {
       await prisma.customerOrder.upsert({
         where: { crmCustomerId_externalId: { crmCustomerId: crmCustomer.id, externalId } },

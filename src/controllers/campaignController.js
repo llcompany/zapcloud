@@ -457,8 +457,8 @@ const getCampaignReport = async (req, res) => {
         SELECT COUNT(*)::int AS vendas, COALESCE(SUM(total), 0)::float AS receita
         FROM (
           SELECT DISTINCT co.id, co.total
-          FROM campaign_executions ce
-          JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+          FROM zapcloud.campaign_executions ce
+          JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
           WHERE ce."campaignId" IN (${idList})
             AND ce.status = 'SENT'
             AND ce."sentAt" IS NOT NULL
@@ -499,8 +499,8 @@ const getCampaignConversions = async (req, res) => {
         COALESCE(SUM(total), 0)::float       AS revenue
       FROM (
         SELECT DISTINCT co.id, co.total, co."crmCustomerId"
-        FROM campaign_executions ce
-        JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+        FROM zapcloud.campaign_executions ce
+        JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
         WHERE ce."campaignId" = $1
           AND ce.status = 'SENT'
           AND ce."sentAt" IS NOT NULL

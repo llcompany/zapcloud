@@ -1695,7 +1695,7 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,f
           </p>
         </div>
         <div style={{display:'flex',gap:8,flexShrink:0}}>
-          {c.status==='RUNNING'&&onForceComplete&&(
+          {(c.status==='RUNNING'||(c.status==='COMPLETED'&&(c.sentCount||0)<(c.totalRecipients||0)))&&onForceComplete&&(
             <button onClick={onForceComplete} disabled={forcingComplete} title="Retomar envios que pararam" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #ECB22E',background:'#FFFBEB',fontSize:12,fontWeight:600,color:'#B7791F',cursor:'pointer'}}>
               {forcingComplete?'Retomando...':'▶ Retomar disparo'}
             </button>

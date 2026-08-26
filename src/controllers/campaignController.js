@@ -451,17 +451,20 @@ const getCampaignReport = async (req, res) => {
       // Pedidos realizados por clientes que receberam alguma dessas campanhas,
       // dentro de 30 dias após o envio
       const idList = campaignIds.map(id => `'${id}'`).join(',');
+      // DISTINCT no subquery deduplica pedidos antes do SUM: sem isso, um cliente
+      // que recebeu N campanhas gera N linhas no JOIN e o mesmo pedido soma N vezes
       const rows = await prisma.$queryRawUnsafe(`
-        SELECT
-          COUNT(DISTINCT co.id)::int   AS vendas,
-          COALESCE(SUM(co.total), 0)::float AS receita
-        FROM campaign_executions ce
-        JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
-        WHERE ce."campaignId" IN (${idList})
-          AND ce.status = 'SENT'
-          AND ce."sentAt" IS NOT NULL
-          AND co."orderedAt" > ce."sentAt"
-          AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+        SELECT COUNT(*)::int AS vendas, COALESCE(SUM(total), 0)::float AS receita
+        FROM (
+          SELECT DISTINCT co.id, co.total
+          FROM campaign_executions ce
+          JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+          WHERE ce."campaignId" IN (${idList})
+            AND ce.status = 'SENT'
+            AND ce."sentAt" IS NOT NULL
+            AND co."orderedAt" > ce."sentAt"
+            AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+        ) AS distinct_orders
       `);
       vendasGeradas = Number(rows[0]?.vendas) || 0;
       receitaGerada = Number(rows[0]?.receita) || 0;
@@ -488,17 +491,22 @@ const getCampaignConversions = async (req, res) => {
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
 
     // windowHours já é inteiro validado (parseInt + Math.min), seguro embutir no SQL
+    // DISTINCT no subquery deduplica pedidos antes do SUM; o crmCustomerId entra no
+    // subquery para conversions continuar contando clientes únicos, não pedidos
     const result = await prisma.$queryRawUnsafe(`
       SELECT
-        COUNT(DISTINCT ce."crmCustomerId")::int  AS conversions,
-        COALESCE(SUM(co.total), 0)::float        AS revenue
-      FROM campaign_executions ce
-      JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
-      WHERE ce."campaignId" = $1
-        AND ce.status = 'SENT'
-        AND ce."sentAt" IS NOT NULL
-        AND co."orderedAt" > ce."sentAt"
-        AND co."orderedAt" < ce."sentAt" + INTERVAL '${windowHours} hours'
+        COUNT(DISTINCT "crmCustomerId")::int AS conversions,
+        COALESCE(SUM(total), 0)::float       AS revenue
+      FROM (
+        SELECT DISTINCT co.id, co.total, co."crmCustomerId"
+        FROM campaign_executions ce
+        JOIN customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+        WHERE ce."campaignId" = $1
+          AND ce.status = 'SENT'
+          AND ce."sentAt" IS NOT NULL
+          AND co."orderedAt" > ce."sentAt"
+          AND co."orderedAt" < ce."sentAt" + INTERVAL '${windowHours} hours'
+      ) AS distinct_orders
     `, campaignId);
 
     const row = result[0] || {};

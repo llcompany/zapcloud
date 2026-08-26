@@ -258,6 +258,7 @@ const executeCampaign = async (req, res) => {
     // Processa envios em background
     let sent = 0, failed = 0;
     const params = Array.isArray(campaign.templateParams) ? campaign.templateParams : [];
+    const BATCH_UPDATE = 20; // atualiza sentCount no banco a cada N enviados
 
     for (const customer of customers) {
       try {
@@ -290,6 +291,14 @@ const executeCampaign = async (req, res) => {
         await prisma.campaignExecution.updateMany({
           where: { campaignId, crmCustomerId: customer.id },
           data: { status: 'FAILED', failedReason: metaError(err) },
+        });
+      }
+
+      // Atualiza contadores no banco a cada BATCH_UPDATE mensagens (progresso incremental)
+      if ((sent + failed) % BATCH_UPDATE === 0) {
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { sentCount: sent, failedCount: failed },
         });
       }
 
@@ -543,4 +552,41 @@ const testSend = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport };
+// ─── Força conclusão de campanha travada em RUNNING ──────────────────────────
+const forceCompleteCampaign = async (req, res) => {
+  try {
+    const { wabaAccountId, campaignId } = req.params;
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+    if (campaign.status !== 'RUNNING') {
+      return res.status(400).json({ success: false, message: `Campanha não está em RUNNING (status: ${campaign.status}).` });
+    }
+
+    // Conta execuções já processadas diretamente no banco
+    const [sentResult, failedResult] = await Promise.all([
+      prisma.campaignExecution.count({ where: { campaignId, status: 'SENT' } }),
+      prisma.campaignExecution.count({ where: { campaignId, status: 'FAILED' } }),
+    ]);
+
+    const unitCost = campaign.estimatedCost && campaign.totalRecipients
+      ? campaign.estimatedCost / campaign.totalRecipients
+      : 0;
+
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        sentCount: sentResult,
+        failedCount: failedResult,
+        totalCost: unitCost ? Number((sentResult * unitCost).toFixed(2)) : null,
+      },
+    });
+
+    res.json({ success: true, message: `Campanha marcada como concluída: ${sentResult} enviadas, ${failedResult} falhas.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Erro ao forçar conclusão.', error: err.message });
+  }
+};
+
+module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, forceCompleteCampaign };

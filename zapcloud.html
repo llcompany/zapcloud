@@ -1660,7 +1660,7 @@ function Templates({token,wabaId}){
 const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
 const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
-function CampaignReport({campaign,onClose,onRefresh,refreshing}){
+function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,forcingComplete}){
   // conv vem embutido no objeto campaign (buscado junto no openReport)
   const conv=campaign?.conv??null;
 
@@ -1695,6 +1695,11 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing}){
           </p>
         </div>
         <div style={{display:'flex',gap:8,flexShrink:0}}>
+          {c.status==='RUNNING'&&onForceComplete&&(
+            <button onClick={onForceComplete} disabled={forcingComplete} title="Forçar conclusão" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #FF5252',background:'#fff',fontSize:12,fontWeight:600,color:'#FF5252',cursor:'pointer'}}>
+              {forcingComplete?'Aguarde...':'⏹ Forçar conclusão'}
+            </button>
+          )}
           <button onClick={onRefresh} disabled={refreshing} title="Atualizar" style={{padding:'7px 12px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',fontSize:12,fontWeight:600,color:C.tx}}>
             {refreshing?'...':'↻'}
           </button>
@@ -1835,6 +1840,20 @@ function Campaigns({token,wabaId}){
     setLoadingReport(false);
   };
   const closeReport=()=>{setReport(null);setReportId(null);};
+
+  const [forcingComplete,setForcingComplete]=useState(false);
+  const forceComplete=async()=>{
+    if(!report||!window.confirm('Marcar campanha como concluída agora? Use apenas se o disparo travou.'))return;
+    setForcingComplete(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${report.id}/force-complete`,
+        {method:'POST',headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success){alert(d.message);openReport(report.id);}
+      else alert('Erro: '+d.message);
+    }catch(e){alert('Erro: '+e.message);}
+    setForcingComplete(false);
+  };
 
   // Campanha em execução: atualiza sozinha para o usuário ver o disparo andar
   useEffect(()=>{
@@ -2188,7 +2207,7 @@ function Campaigns({token,wabaId}){
        </div>)}
      </div>}
     {reportId&&!report&&loadingReport&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,color:'#fff',fontSize:13}}>Carregando relatório...</div>}
-    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport}/>}
+    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport} onForceComplete={forceComplete} forcingComplete={forcingComplete}/>}
   </div>;
 }
 

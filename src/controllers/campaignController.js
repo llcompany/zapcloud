@@ -247,7 +247,7 @@ const executeCampaign = async (req, res) => {
     // O frontend chama execute repetidamente até done=true.
     // Isso garante que nenhuma requisição dura mais de ~15 segundos,
     // eliminando a dependência de processos background que podem ser mortos.
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = 25;
     const DELAY_MS   = 200; // 200ms entre envios dentro do lote
 
     // Clientes ainda não processados (unique constraint impede duplicatas)
@@ -279,7 +279,6 @@ const executeCampaign = async (req, res) => {
     });
 
     const params = Array.isArray(campaign.templateParams) ? campaign.templateParams : [];
-    const unitCost = template.costPerConversation || 0;
     let sent = alreadySent, failed = alreadyFailed;
 
     for (const customer of batch) {

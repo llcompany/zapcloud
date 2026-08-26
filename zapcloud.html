@@ -1663,6 +1663,11 @@ const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',cu
 function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,forcingComplete}){
   // conv vem embutido no objeto campaign (buscado junto no openReport)
   const conv=campaign?.conv??null;
+  // Guarda o último conv conhecido para nunca voltar ao "Carregando..." num refresh que falhou.
+  // O id entra no ref para não exibir conversões de outra campanha caso o modal troque de alvo.
+  const lastConvRef=useRef(null);
+  if(conv!==null) lastConvRef.current={id:campaign?.id,conv};
+  const displayConv=conv??(lastConvRef.current?.id===campaign?.id?lastConvRef.current.conv:null);
 
   // Fecha no Esc — modal sem isso prende o usuário no teclado
   useEffect(()=>{
@@ -1760,20 +1765,20 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,f
       {(c.status==='RUNNING'||c.status==='COMPLETED')&&(
         <div style={{background:'#F0FFF4',borderRadius:14,padding:16,marginTop:16,border:'1px solid #C6F6D5'}}>
           <p style={{fontSize:13,fontWeight:600,color:'#276749',marginBottom:12}}>🛒 Vendas Geradas</p>
-          {conv==null?(
+          {displayConv==null?(
             <p style={{fontSize:12,color:'#68D391',textAlign:'center',padding:'8px 0'}}>Carregando...</p>
           ):(
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
               <div style={{textAlign:'center'}}>
-                <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversions}</div>
+                <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{displayConv.conversions}</div>
                 <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>pedidos realizados</div>
               </div>
               <div style={{textAlign:'center'}}>
-                <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{conv.conversionRate}%</div>
+                <div style={{fontSize:26,fontWeight:800,color:'#276749'}}>{displayConv.conversionRate}%</div>
                 <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>taxa de conversão</div>
               </div>
               <div style={{textAlign:'center'}}>
-                <div style={{fontSize:22,fontWeight:800,color:'#276749'}}>{brl(conv.revenue)}</div>
+                <div style={{fontSize:22,fontWeight:800,color:'#276749'}}>{brl(displayConv.revenue)}</div>
                 <div style={{fontSize:11,color:'#68D391',fontWeight:500}}>receita gerada</div>
               </div>
             </div>

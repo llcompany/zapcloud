@@ -1846,11 +1846,8 @@ function Campaigns({token,wabaId}){
     if(!report||!window.confirm('Retomar o disparo de onde parou? Os clientes que já receberam NÃO serão contactados novamente.'))return;
     setForcingComplete(true);
     try{
-      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${report.id}/execute`,
-        {method:'POST',headers:{Authorization:`Bearer ${token}`}});
-      const d=await r.json();
-      if(d.success){alert('✅ '+d.message);openReport(report.id);}
-      else alert('Erro: '+d.message);
+      await runBatches(report.id,()=>alert('✅ Disparo concluído!'));
+      openReport(report.id);
     }catch(e){alert('Erro: '+e.message);}
     setForcingComplete(false);
   };
@@ -1931,16 +1928,28 @@ function Campaigns({token,wabaId}){
     setSendingTest(false);
   };
 
+  // Executa/retoma um disparo em lotes de 50 até done=true
+  const runBatches=async(id,onDone)=>{
+    let done=false;
+    while(!done){
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/execute`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(!d.success) throw new Error(d.message);
+      done=d.done;
+      // Atualiza lista a cada lote para mostrar progresso
+      load();
+    }
+    if(onDone) onDone();
+  };
+
   const executeCampaign=async(id)=>{
     if(!confirm('Confirma o disparo da campanha? As mensagens serão enviadas agora.'))return;
     setExecuting(id);
     try{
-      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/execute`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
-      const d=await r.json();
-      if(d.success){alert('✅ '+d.message);load();}
-      else alert('❌ Erro: '+d.message);
-    }catch(e){alert('Erro: '+e.message);}
+      await runBatches(id,()=>alert('✅ Disparo concluído!'));
+    }catch(e){alert('❌ Erro: '+e.message);}
     setExecuting(null);
+    load();
   };
 
   const statusBadge=(s)=>{

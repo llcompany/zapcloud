@@ -242,19 +242,31 @@ const executeCampaign = async (req, res) => {
       });
     }
 
-    // Descobre quais clientes já foram processados (execuções existentes desta campanha)
-    // Isso permite retomar um disparo interrompido sem duplicar envios.
+    // ── Processamento em lotes ───────────────────────────────────────────────
+    // Cada chamada processa no máximo BATCH_SIZE clientes e retorna.
+    // O frontend chama execute repetidamente até done=true.
+    // Isso garante que nenhuma requisição dura mais de ~15 segundos,
+    // eliminando a dependência de processos background que podem ser mortos.
+    const BATCH_SIZE = 50;
+    const DELAY_MS   = 200; // 200ms entre envios dentro do lote
+
+    // Clientes ainda não processados (unique constraint impede duplicatas)
     const executedIds = await prisma.campaignExecution.findMany({
       where: { campaignId },
       select: { crmCustomerId: true },
     });
     const executedSet = new Set(executedIds.map(e => e.crmCustomerId));
-    const customers = allCustomers.filter(c => !executedSet.has(c.id));
-    const alreadySent = await prisma.campaignExecution.count({ where: { campaignId, status: 'SENT' } });
-    const alreadyFailed = await prisma.campaignExecution.count({ where: { campaignId, status: 'FAILED' } });
-    const isResume = executedSet.size > 0;
+    const pending = allCustomers.filter(c => !executedSet.has(c.id));
+    const batch   = pending.slice(0, BATCH_SIZE);
 
-    // Atualiza status para RUNNING
+    // Contadores acumulados do que já foi processado
+    const [alreadySent, alreadyFailed] = await Promise.all([
+      prisma.campaignExecution.count({ where: { campaignId, status: 'SENT' } }),
+      prisma.campaignExecution.count({ where: { campaignId, status: 'FAILED' } }),
+    ]);
+
+    // Na primeira chamada zera contadores; nas demais preserva
+    const isFirstBatch = executedSet.size === 0;
     await prisma.campaign.update({
       where: { id: campaignId },
       data: {
@@ -262,49 +274,30 @@ const executeCampaign = async (req, res) => {
         startedAt: campaign.startedAt || new Date(),
         totalRecipients: allCustomers.length,
         estimatedCost,
-        // Numa retomada, preserva contadores já acumulados; num disparo novo, zera tudo
-        ...(isResume ? {} : { sentCount: 0, failedCount: 0, readCount: 0, clickCount: 0, totalCost: null }),
+        ...(isFirstBatch ? { sentCount: 0, failedCount: 0, readCount: 0, clickCount: 0, totalCost: null } : {}),
       },
     });
 
-    const resumeMsg = isResume
-      ? `Retomando disparo (${executedSet.size} já processados, ${customers.length} restantes).`
-      : `Campanha iniciada! ${customers.length} clientes serão contatados.`;
-
-    // Responde imediatamente e processa em background
-    res.json({ success: true, message: resumeMsg, data: { total: allCustomers.length, remaining: customers.length } });
-
-    // Processa envios em background
-    let sent = alreadySent, failed = alreadyFailed;
     const params = Array.isArray(campaign.templateParams) ? campaign.templateParams : [];
-    const BATCH_UPDATE = 20; // atualiza sentCount no banco a cada N enviados
+    const unitCost = template.costPerConversation || 0;
+    let sent = alreadySent, failed = alreadyFailed;
 
-    for (const customer of customers) {
+    for (const customer of batch) {
       try {
-        // A execução é criada antes do envio porque o link rastreado precisa do id dela.
-        // O unique constraint (campaignId, crmCustomerId) garante que dois loops paralelos
-        // nunca conseguem criar duas execuções para o mesmo cliente — o segundo recebe P2002
-        // e cai no catch abaixo sem contar como falha de envio.
         let execution;
         try {
           execution = await prisma.campaignExecution.create({
             data: { campaignId, crmCustomerId: customer.id, message: '' },
           });
         } catch (dupErr) {
-          // P2002 = unique constraint violation → cliente já sendo/foi processado por outro loop
-          if (dupErr?.code === 'P2002') {
-            console.warn('[Campaign] Duplicata ignorada para', customer.phone);
-            continue;
-          }
+          if (dupErr?.code === 'P2002') { continue; } // já processado por lote anterior
           throw dupErr;
         }
+
         const ctx = { trackingUrl: trackingUrlFor(execution.id) };
-
-        // Texto só para registro/auditoria — o envio real vai pelos `parameters`
         const finalMessage = renderTemplateBody(template.bodyText, params, customer, ctx);
-
-        // Envia via Meta API
         const phone = normalizePhone(customer.phone);
+
         const response = await axios.post(
           `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
           buildMetaPayload({ to: phone, template, templateParams: params, customer, ctx }),
@@ -326,28 +319,33 @@ const executeCampaign = async (req, res) => {
         });
       }
 
-      // Atualiza contadores no banco a cada BATCH_UPDATE mensagens (progresso incremental)
-      if ((sent + failed) % BATCH_UPDATE === 0) {
-        await prisma.campaign.update({
-          where: { id: campaignId },
-          data: { sentCount: sent, failedCount: failed },
-        });
-      }
-
-      // Delay de 500ms entre mensagens para evitar rate limiting
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, DELAY_MS));
     }
+
+    const remaining = pending.length - batch.length;
+    const done = remaining === 0;
 
     await prisma.campaign.update({
       where: { id: campaignId },
       data: {
-        status: 'COMPLETED',
-        completedAt: new Date(),
         sentCount: sent,
         failedCount: failed,
-        // Custo real cobra só o que a Meta aceitou; falhas não geram conversa
-        totalCost: unitCost ? Number((sent * unitCost).toFixed(2)) : null,
+        ...(done ? {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          totalCost: unitCost ? Number((sent * unitCost).toFixed(2)) : null,
+        } : {}),
       },
+    });
+
+    res.json({
+      success: true,
+      done,
+      remaining,
+      message: done
+        ? `Disparo concluído! ${sent} enviadas, ${failed} falhas.`
+        : `Lote processado: ${sent} enviadas até agora. Ainda ${remaining} restantes.`,
+      data: { total: allCustomers.length, sent, failed, remaining },
     });
 
   } catch (err) {

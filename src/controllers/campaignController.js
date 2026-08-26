@@ -201,7 +201,10 @@ const executeCampaign = async (req, res) => {
       include: { template: true },
     });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
-    if (campaign.status === 'RUNNING') return res.status(400).json({ success: false, message: 'Campanha já está em execução.' });
+    // Permite retomar RUNNING (disparo interrompido) e COMPLETED (redisparo explícito)
+    if (!['DRAFT','RUNNING','COMPLETED','FAILED'].includes(campaign.status)) {
+      return res.status(400).json({ success: false, message: `Não é possível disparar campanha com status ${campaign.status}.` });
+    }
 
     const wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: wabaAccountId } });
     if (!wabaAccount) return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
@@ -224,11 +227,11 @@ const executeCampaign = async (req, res) => {
 
     // Busca clientes do segmento (a origem gravada na campanha entra no filtro)
     const where = buildFilter(wabaAccountId, { ...(campaign.segmentFilter || {}), sourceFilter: campaign.sourceFilter || campaign.segmentFilter?.sourceFilter || null });
-    const customers = await prisma.crmCustomer.findMany({ where });
+    const allCustomers = await prisma.crmCustomer.findMany({ where });
 
     // Custo estimado a partir do preço por conversa do template
     const unitCost = template.costPerConversation || 0;
-    const estimatedCost = unitCost ? Number((customers.length * unitCost).toFixed(2)) : null;
+    const estimatedCost = unitCost ? Number((allCustomers.length * unitCost).toFixed(2)) : null;
 
     // Link rastreado só é possível com uma base pública configurada
     const usesTracking = (campaign.templateParams || []).includes('link_rastreado');
@@ -239,24 +242,40 @@ const executeCampaign = async (req, res) => {
       });
     }
 
+    // Descobre quais clientes já foram processados (execuções existentes desta campanha)
+    // Isso permite retomar um disparo interrompido sem duplicar envios.
+    const executedIds = await prisma.campaignExecution.findMany({
+      where: { campaignId },
+      select: { crmCustomerId: true },
+    });
+    const executedSet = new Set(executedIds.map(e => e.crmCustomerId));
+    const customers = allCustomers.filter(c => !executedSet.has(c.id));
+    const alreadySent = await prisma.campaignExecution.count({ where: { campaignId, status: 'SENT' } });
+    const alreadyFailed = await prisma.campaignExecution.count({ where: { campaignId, status: 'FAILED' } });
+    const isResume = executedSet.size > 0;
+
     // Atualiza status para RUNNING
     await prisma.campaign.update({
       where: { id: campaignId },
       data: {
         status: 'RUNNING',
-        startedAt: new Date(),
-        totalRecipients: customers.length,
+        startedAt: campaign.startedAt || new Date(),
+        totalRecipients: allCustomers.length,
         estimatedCost,
-        // Zera contadores para que um redisparo não some com a execução anterior
-        sentCount: 0, failedCount: 0, readCount: 0, clickCount: 0, totalCost: null,
+        // Numa retomada, preserva contadores já acumulados; num disparo novo, zera tudo
+        ...(isResume ? {} : { sentCount: 0, failedCount: 0, readCount: 0, clickCount: 0, totalCost: null }),
       },
     });
 
+    const resumeMsg = isResume
+      ? `Retomando disparo (${executedSet.size} já processados, ${customers.length} restantes).`
+      : `Campanha iniciada! ${customers.length} clientes serão contatados.`;
+
     // Responde imediatamente e processa em background
-    res.json({ success: true, message: `Campanha iniciada! ${customers.length} clientes serão contatados.`, data: { total: customers.length } });
+    res.json({ success: true, message: resumeMsg, data: { total: allCustomers.length, remaining: customers.length } });
 
     // Processa envios em background
-    let sent = 0, failed = 0;
+    let sent = alreadySent, failed = alreadyFailed;
     const params = Array.isArray(campaign.templateParams) ? campaign.templateParams : [];
     const BATCH_UPDATE = 20; // atualiza sentCount no banco a cada N enviados
 

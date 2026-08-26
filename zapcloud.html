@@ -1696,8 +1696,8 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,f
         </div>
         <div style={{display:'flex',gap:8,flexShrink:0}}>
           {c.status==='RUNNING'&&onForceComplete&&(
-            <button onClick={onForceComplete} disabled={forcingComplete} title="Forçar conclusão" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #FF5252',background:'#fff',fontSize:12,fontWeight:600,color:'#FF5252',cursor:'pointer'}}>
-              {forcingComplete?'Aguarde...':'⏹ Forçar conclusão'}
+            <button onClick={onForceComplete} disabled={forcingComplete} title="Retomar envios que pararam" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #ECB22E',background:'#FFFBEB',fontSize:12,fontWeight:600,color:'#B7791F',cursor:'pointer'}}>
+              {forcingComplete?'Retomando...':'▶ Retomar disparo'}
             </button>
           )}
           <button onClick={onRefresh} disabled={refreshing} title="Atualizar" style={{padding:'7px 12px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',fontSize:12,fontWeight:600,color:C.tx}}>
@@ -1843,13 +1843,13 @@ function Campaigns({token,wabaId}){
 
   const [forcingComplete,setForcingComplete]=useState(false);
   const forceComplete=async()=>{
-    if(!report||!window.confirm('Marcar campanha como concluída agora? Use apenas se o disparo travou.'))return;
+    if(!report||!window.confirm('Retomar o disparo de onde parou? Os clientes que já receberam NÃO serão contactados novamente.'))return;
     setForcingComplete(true);
     try{
-      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${report.id}/force-complete`,
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${report.id}/execute`,
         {method:'POST',headers:{Authorization:`Bearer ${token}`}});
       const d=await r.json();
-      if(d.success){alert(d.message);openReport(report.id);}
+      if(d.success){alert('✅ '+d.message);openReport(report.id);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setForcingComplete(false);

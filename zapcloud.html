@@ -1834,7 +1834,10 @@ function Campaigns({token,wabaId}){
         fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/conversions?windowHours=720`,{headers:{Authorization:`Bearer ${token}`}}),
       ]);
       const [dCamp,dConv]=await Promise.all([rCamp.json(),rConv.json()]);
-      if(dCamp.success) setReport({...dCamp.data, conv: dConv.success?dConv.data:null});
+      // Se o fetch de conversões falhar, preserva o conv anterior para o card não piscar.
+      // Forma funcional do setReport: prev é sempre o estado mais recente, mesmo quando
+      // openReport é chamada por um closure antigo (auto-refresh de 5s).
+      if(dCamp.success) setReport(prev=>({...dCamp.data, conv: dConv.success?dConv.data:(prev?.conv??null)}));
       else alert('Erro: '+dCamp.message);
     }catch(e){alert('Erro: '+e.message);}
     setLoadingReport(false);

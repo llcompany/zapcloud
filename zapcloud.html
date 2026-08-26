@@ -1660,7 +1660,7 @@ function Templates({token,wabaId}){
 const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
 const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
-function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,forcingComplete}){
+function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,forcingComplete,converters}){
   // conv vem embutido no objeto campaign (buscado junto no openReport)
   const conv=campaign?.conv??null;
   // Guarda o último conv conhecido para nunca voltar ao "Carregando..." num refresh que falhou.
@@ -1785,6 +1785,37 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,f
           )}
         </div>
       )}
+
+      {/* Clientes convertidos — detalhe do card Vendas Geradas */}
+      {converters&&converters.length>0&&(
+        <div style={{marginTop:24}}>
+          <div style={{fontWeight:600,marginBottom:8,fontSize:14}}>
+            Clientes que compraram após o disparo
+          </div>
+          <div style={{maxHeight:280,overflowY:'auto',border:'1px solid #e5e7eb',borderRadius:8}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{background:'#f9fafb',position:'sticky',top:0}}>
+                  <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#6b7280'}}>Cliente</th>
+                  <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#6b7280'}}>Telefone</th>
+                  <th style={{padding:'8px 12px',textAlign:'right',fontWeight:600,color:'#6b7280'}}>Pedidos</th>
+                  <th style={{padding:'8px 12px',textAlign:'right',fontWeight:600,color:'#6b7280'}}>Receita</th>
+                </tr>
+              </thead>
+              <tbody>
+                {converters.map((r,i)=>(
+                  <tr key={i} style={{borderTop:'1px solid #f3f4f6'}}>
+                    <td style={{padding:'8px 12px'}}>{r.name||'—'}</td>
+                    <td style={{padding:'8px 12px',color:'#6b7280'}}>{r.phone}</td>
+                    <td style={{padding:'8px 12px',textAlign:'right'}}>{r.pedidos}</td>
+                    <td style={{padding:'8px 12px',textAlign:'right',color:'#16a34a',fontWeight:500}}>{brl(r.receita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   </div>;
 }
@@ -1806,6 +1837,7 @@ function Campaigns({token,wabaId}){
   const [executing,setExecuting]=useState(false);
   const [report,setReport]=useState(null);
   const [reportId,setReportId]=useState(null);
+  const [converters,setConverters]=useState(null); // clientes que compraram após o disparo
   const [loadingReport,setLoadingReport]=useState(false);
 
   const load=async()=>{
@@ -1834,11 +1866,13 @@ function Campaigns({token,wabaId}){
   const openReport=async(id)=>{
     setReportId(id);setLoadingReport(true);
     try{
-      const [rCamp,rConv]=await Promise.all([
+      const [rCamp,rConv,rConvts]=await Promise.all([
         fetch(`${API}/api/crm/${wabaId}/campaigns/${id}`,{headers:{Authorization:`Bearer ${token}`}}),
         fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/conversions?windowHours=720`,{headers:{Authorization:`Bearer ${token}`}}),
+        fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/converters`,{headers:{Authorization:`Bearer ${token}`}}),
       ]);
-      const [dCamp,dConv]=await Promise.all([rCamp.json(),rConv.json()]);
+      const [dCamp,dConv,dConvts]=await Promise.all([rCamp.json(),rConv.json(),rConvts.json()]);
+      if(dConvts.success) setConverters(dConvts.data);
       // Se o fetch de conversões falhar, preserva o conv anterior para o card não piscar.
       // Forma funcional do setReport: prev é sempre o estado mais recente, mesmo quando
       // openReport é chamada por um closure antigo (auto-refresh de 5s).
@@ -1847,7 +1881,7 @@ function Campaigns({token,wabaId}){
     }catch(e){alert('Erro: '+e.message);}
     setLoadingReport(false);
   };
-  const closeReport=()=>{setReport(null);setReportId(null);};
+  const closeReport=()=>{setReport(null);setReportId(null);setConverters(null);};
 
   const [forcingComplete,setForcingComplete]=useState(false);
   const forceComplete=async()=>{
@@ -2224,7 +2258,7 @@ function Campaigns({token,wabaId}){
        </div>)}
      </div>}
     {reportId&&!report&&loadingReport&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,color:'#fff',fontSize:13}}>Carregando relatório...</div>}
-    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport} onForceComplete={forceComplete} forcingComplete={forcingComplete}/>}
+    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport} onForceComplete={forceComplete} forcingComplete={forcingComplete} converters={converters}/>}
   </div>;
 }
 

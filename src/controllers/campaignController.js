@@ -634,4 +634,39 @@ const forceCompleteCampaign = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, forceCompleteCampaign };
+// ─── Clientes convertidos da campanha ────────────────────────────────────────
+// Lista quem comprou após receber o disparo, com pedidos e receita por cliente.
+const getCampaignConverters = async (req, res) => {
+  try {
+    const { wabaAccountId, campaignId } = req.params;
+    const windowHours = 720;
+
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        c.name,
+        c.phone,
+        COUNT(DISTINCT co.id)::int        AS pedidos,
+        COALESCE(SUM(co.total), 0)::float AS receita,
+        MAX(co."orderedAt")               AS ultimo_pedido
+      FROM zapcloud.campaign_executions ce
+      JOIN zapcloud.crm_customers c    ON c.id = ce."crmCustomerId"
+      JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+      WHERE ce."campaignId" = $1
+        AND ce.status = 'SENT' AND ce."sentAt" IS NOT NULL
+        AND co."orderedAt" > ce."sentAt"
+        AND co."orderedAt" < ce."sentAt" + INTERVAL '${windowHours} hours'
+      GROUP BY c.id, c.name, c.phone
+      ORDER BY receita DESC
+    `, campaignId);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('[Campaign] Erro ao buscar convertidos:', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao buscar clientes convertidos.' });
+  }
+};
+
+module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, forceCompleteCampaign, getCampaignConverters };

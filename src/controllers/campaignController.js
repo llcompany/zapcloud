@@ -462,7 +462,7 @@ const getCampaignReport = async (req, res) => {
         FROM (
           SELECT
             ce."campaignId",
-            COUNT(DISTINCT co."crmCustomerId") AS vendas,
+            COUNT(DISTINCT co.id)              AS vendas,
             COALESCE(SUM(co.total), 0)         AS receita
           FROM zapcloud.campaign_executions ce
           JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
@@ -499,14 +499,14 @@ const getCampaignConversions = async (req, res) => {
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
 
     // windowHours já é inteiro validado (parseInt + Math.min), seguro embutir no SQL
-    // DISTINCT no subquery deduplica pedidos antes do SUM; o crmCustomerId entra no
-    // subquery para conversions continuar contando clientes únicos, não pedidos
+    // DISTINCT no subquery deduplica pedidos antes do SUM; conversions conta
+    // pedidos únicos realizados na janela, não clientes únicos
     const result = await prisma.$queryRawUnsafe(`
       SELECT
-        COUNT(DISTINCT "crmCustomerId")::int AS conversions,
-        COALESCE(SUM(total), 0)::float       AS revenue
+        COUNT(DISTINCT id)::int        AS conversions,
+        COALESCE(SUM(total), 0)::float AS revenue
       FROM (
-        SELECT DISTINCT co.id, co.total, co."crmCustomerId"
+        SELECT DISTINCT co.id, co.total
         FROM zapcloud.campaign_executions ce
         JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
         WHERE ce."campaignId" = $1

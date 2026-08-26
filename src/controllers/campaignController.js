@@ -451,12 +451,19 @@ const getCampaignReport = async (req, res) => {
       // Pedidos realizados por clientes que receberam alguma dessas campanhas,
       // dentro de 30 dias após o envio
       const idList = campaignIds.map(id => `'${id}'`).join(',');
-      // DISTINCT no subquery deduplica pedidos antes do SUM: sem isso, um cliente
-      // que recebeu N campanhas gera N linhas no JOIN e o mesmo pedido soma N vezes
+      // Calcula vendas/receita por campanha e soma, replicando o que cada
+      // getCampaignConversions mostra individualmente — assim o total do relatório
+      // sempre bate com a soma dos relatórios de cada campanha (um pedido atribuído
+      // a mais de uma campanha conta em todas, como nos relatórios individuais)
       const rows = await prisma.$queryRawUnsafe(`
-        SELECT COUNT(*)::int AS vendas, COALESCE(SUM(total), 0)::float AS receita
+        SELECT
+          COALESCE(SUM(vendas), 0)::int    AS total_vendas,
+          COALESCE(SUM(receita), 0)::float AS total_receita
         FROM (
-          SELECT DISTINCT co.id, co.total
+          SELECT
+            ce."campaignId",
+            COUNT(DISTINCT co."crmCustomerId") AS vendas,
+            COALESCE(SUM(co.total), 0)         AS receita
           FROM zapcloud.campaign_executions ce
           JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
           WHERE ce."campaignId" IN (${idList})
@@ -464,10 +471,11 @@ const getCampaignReport = async (req, res) => {
             AND ce."sentAt" IS NOT NULL
             AND co."orderedAt" > ce."sentAt"
             AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
-        ) AS distinct_orders
+          GROUP BY ce."campaignId"
+        ) campaign_stats
       `);
-      vendasGeradas = Number(rows[0]?.vendas) || 0;
-      receitaGerada = Number(rows[0]?.receita) || 0;
+      vendasGeradas = Number(rows[0]?.total_vendas) || 0;
+      receitaGerada = Number(rows[0]?.total_receita) || 0;
     }
 
     res.json({

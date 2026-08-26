@@ -204,6 +204,10 @@ model CrmCustomer {
   orders              CustomerOrder[]
 
   @@unique([wabaAccountId, phone])
+  // Filtros de segmentação de campanha consultam por source, lastOrderAt e isActive
+  @@index([wabaAccountId, source])
+  @@index([wabaAccountId, lastOrderAt])
+  @@index([wabaAccountId, isActive])
   @@map("crm_customers")
 }
 
@@ -223,6 +227,10 @@ model CustomerOrder {
 
   crmCustomer   CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
 
+  // Queries de conversão cruzam pedidos por cliente e janela de orderedAt
+  @@index([crmCustomerId])
+  @@index([orderedAt])
+  @@index([crmCustomerId, orderedAt])
   @@map("customer_orders")
 }
 
@@ -291,9 +299,13 @@ model CampaignExecution {
   crmCustomer CrmCustomer @relation(fields: [crmCustomerId], references: [id], onDelete: Cascade)
 
   // Garante que um cliente só receba uma execução por campanha (evita duplicatas em retomada paralela)
+  // e já serve de índice composto (campaignId, crmCustomerId) para as queries de retomada
   @@unique([campaignId, crmCustomerId])
   // O webhook busca a execução por waMessageId a cada status recebido
   @@index([waMessageId])
+  // Conversões filtram por cliente e contam por (campaignId, status)
+  @@index([crmCustomerId])
+  @@index([campaignId, status])
   @@map("campaign_executions")
 }
 

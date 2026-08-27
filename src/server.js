@@ -53,6 +53,8 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
 app.get('/', (req, res) => {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +

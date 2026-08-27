@@ -100,18 +100,18 @@ function Login({onLogin}){
   const OR='#f97316';
   const [imgOk,setImgOk]=useState(true);
   const inp={width:'100%',padding:'12px 14px',borderRadius:12,border:'1.5px solid #333',fontSize:13,color:'#fff',background:'#1a1a1a',display:'block'};
-  return <div style={{minHeight:'100vh',display:'flex',background:'radial-gradient(ellipse at 35% 20%,#2a1200 0%,#0f0800 75%)'}}>
+  return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',background:'radial-gradient(ellipse at 35% 20%,#2a1200 0%,#0f0800 75%)'}}>
     {/* Esquerdo — hero ZapFood */}
-    <div style={{flex:3,display:'flex',alignItems:'center',padding:'48px 32px 48px 64px',minWidth:0}}>
-      <div style={{display:'flex',alignItems:'center',gap:48,width:'100%'}}>
+    <div style={{flex:3,display:'flex',alignItems:'center',padding:'32px 32px 32px 56px',minWidth:0}}>
+      <div style={{display:'flex',alignItems:'center',gap:40,width:'100%'}}>
         <div style={{flex:1,maxWidth:560}}>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 14px',borderRadius:99,border:`1px solid ${OR}`,marginBottom:26}}>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 14px',borderRadius:99,border:`1px solid ${OR}`,marginBottom:22}}>
             <span style={{fontSize:12,fontWeight:700,color:OR,letterSpacing:.5}}>⚡ API OFICIAL DO WHATSAPP</span>
           </div>
-          <h1 style={{fontSize:56,fontWeight:900,lineHeight:1.08,marginBottom:20,color:'#fff'}}>
+          <h1 style={{fontSize:40,fontWeight:900,lineHeight:1.12,marginBottom:16,color:'#fff'}}>
             Seu cliente pediu uma vez. <span style={{color:OR}}>Faça ele pedir sempre.</span>
           </h1>
-          <p style={{fontSize:18,color:'#d1d5db',marginBottom:30,lineHeight:1.6}}>O ZapFood usa o WhatsApp oficial para trazer seus clientes de volta — automaticamente.</p>
+          <p style={{fontSize:17,color:'#d1d5db',marginBottom:24,lineHeight:1.6}}>O ZapFood usa o WhatsApp oficial para trazer seus clientes de volta — automaticamente.</p>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px 20px',maxWidth:460}}>
             {['Sem risco de banimento','Setup em minutos','Feito pro food service','Relatórios em tempo real'].map(t=>(
               <div key={t} style={{display:'flex',alignItems:'center',gap:10}}>
@@ -126,15 +126,15 @@ function Login({onLogin}){
         <div className="zf-float" style={{flexShrink:0}}>
           {imgOk
             ?<img src="/hero-phone.png" alt="ZapFood no celular" onError={()=>setImgOk(false)}
-              style={{width:280,maxWidth:'28vw',display:'block',filter:'drop-shadow(0 24px 48px rgba(0,0,0,.5))'}}/>
-            :<div style={{width:250,height:510,borderRadius:38,background:'#1a1a1a',border:'2px solid #333',boxShadow:'0 24px 48px rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+              style={{maxHeight:'70vh',width:'auto',maxWidth:'26vw',display:'block',filter:'drop-shadow(0 24px 48px rgba(0,0,0,.5))'}}/>
+            :<div style={{width:230,height:'62vh',maxHeight:480,borderRadius:38,background:'#1a1a1a',border:'2px solid #333',boxShadow:'0 24px 48px rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <span style={{fontSize:48,color:OR}}>⚡</span>
             </div>}
         </div>
       </div>
     </div>
     {/* Direito — formulário */}
-    <div style={{flex:2,display:'flex',alignItems:'center',justifyContent:'center',padding:40,background:'rgba(0,0,0,.25)'}}>
+    <div style={{flex:2,alignSelf:'stretch',display:'flex',alignItems:'center',justifyContent:'center',padding:'32px 40px',background:'rgba(0,0,0,.25)'}}>
       <div style={{width:'100%',maxWidth:320}}>
         <h2 style={{fontSize:24,fontWeight:700,color:'#fff',marginBottom:4}}>{tab==='login'?'Bem-vindo de volta':'Crie sua conta'}</h2>
         <p style={{fontSize:13,color:'#9ca3af',marginBottom:22}}>{tab==='login'?'Entre para acessar seu painel':'Comece gratuitamente hoje'}</p>

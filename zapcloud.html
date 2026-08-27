@@ -18,6 +18,8 @@ button{cursor:pointer;transition:all .15s}
 .zf-btn:hover{background:#ea580c!important}
 .zf-inp::placeholder{color:#6b7280}
 .zf-inp:focus{border-color:#f97316!important}
+@keyframes zfFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+.zf-float{animation:zfFloat 5s ease-in-out infinite}
 .chat-bg{background-color:#F0F2F5;background-image:url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%2325D366' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E")}
 </style>
 </head>
@@ -96,32 +98,43 @@ function Login({onLogin}){
     finally{setLoading(false);}
   };
   const OR='#f97316';
-  const inp={width:'100%',padding:'12px 14px',borderRadius:12,border:'1.5px solid #333',fontSize:13,color:'#fff',background:'#222',display:'block'};
-  return <div style={{minHeight:'100vh',display:'flex'}}>
-    {/* Esquerdo — branding ZapFood */}
-    <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:48,background:'linear-gradient(135deg,#1a0a00,#0f0f0f)'}}>
-      <div style={{color:'#fff',maxWidth:440}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:36}}>
-          <span style={{fontSize:30,color:OR}}>⚡</span>
-          <span style={{fontSize:26,fontWeight:800,color:'#fff'}}>ZapFood</span>
-        </div>
-        <h1 style={{fontSize:44,fontWeight:800,lineHeight:1.15,marginBottom:18}}>
-          <span style={{color:'#fff'}}>Seu cliente pediu uma vez.</span><br/>
-          <span style={{color:OR}}>Faça ele pedir sempre.</span>
-        </h1>
-        <p style={{fontSize:16,color:'#9ca3af',marginBottom:32,lineHeight:1.6}}>O ZapFood usa o WhatsApp oficial para trazer seus clientes de volta — automaticamente.</p>
-        {['Sem risco de banimento','Setup em minutos','Feito pro food service','Relatórios em tempo real'].map(t=>(
-          <div key={t} style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-            <div style={{width:22,height:22,borderRadius:'50%',background:'rgba(249,115,22,.15)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={OR} strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
-            </div>
-            <span style={{color:'#d1d5db',fontSize:14}}>{t}</span>
+  const [imgOk,setImgOk]=useState(true);
+  const inp={width:'100%',padding:'12px 14px',borderRadius:12,border:'1.5px solid #333',fontSize:13,color:'#fff',background:'#1a1a1a',display:'block'};
+  return <div style={{minHeight:'100vh',display:'flex',background:'radial-gradient(ellipse at 35% 20%,#2a1200 0%,#0f0800 75%)'}}>
+    {/* Esquerdo — hero ZapFood */}
+    <div style={{flex:3,display:'flex',alignItems:'center',padding:'48px 32px 48px 64px',minWidth:0}}>
+      <div style={{display:'flex',alignItems:'center',gap:48,width:'100%'}}>
+        <div style={{flex:1,maxWidth:560}}>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 14px',borderRadius:99,border:`1px solid ${OR}`,marginBottom:26}}>
+            <span style={{fontSize:12,fontWeight:700,color:OR,letterSpacing:.5}}>⚡ API OFICIAL DO WHATSAPP</span>
           </div>
-        ))}
+          <h1 style={{fontSize:56,fontWeight:900,lineHeight:1.08,marginBottom:20,color:'#fff'}}>
+            Seu cliente pediu uma vez. <span style={{color:OR}}>Faça ele pedir sempre.</span>
+          </h1>
+          <p style={{fontSize:18,color:'#d1d5db',marginBottom:30,lineHeight:1.6}}>O ZapFood usa o WhatsApp oficial para trazer seus clientes de volta — automaticamente.</p>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px 20px',maxWidth:460}}>
+            {['Sem risco de banimento','Setup em minutos','Feito pro food service','Relatórios em tempo real'].map(t=>(
+              <div key={t} style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:22,height:22,borderRadius:'50%',background:'rgba(249,115,22,.15)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={OR} strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <span style={{color:'#d1d5db',fontSize:14}}>{t}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="zf-float" style={{flexShrink:0}}>
+          {imgOk
+            ?<img src="https://llzapfood.com.br/assets/hero-phone-YtipQF8n.png" alt="ZapFood no celular" onError={()=>setImgOk(false)}
+              style={{width:280,maxWidth:'28vw',display:'block',filter:'drop-shadow(0 24px 48px rgba(0,0,0,.5))'}}/>
+            :<div style={{width:250,height:510,borderRadius:38,background:'#1a1a1a',border:'2px solid #333',boxShadow:'0 24px 48px rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <span style={{fontSize:48,color:OR}}>⚡</span>
+            </div>}
+        </div>
       </div>
     </div>
     {/* Direito — formulário */}
-    <div style={{width:400,display:'flex',alignItems:'center',justifyContent:'center',padding:40,background:'#1a1a1a'}}>
+    <div style={{flex:2,display:'flex',alignItems:'center',justifyContent:'center',padding:40,background:'rgba(0,0,0,.25)'}}>
       <div style={{width:'100%',maxWidth:320}}>
         <h2 style={{fontSize:24,fontWeight:700,color:'#fff',marginBottom:4}}>{tab==='login'?'Bem-vindo de volta':'Crie sua conta'}</h2>
         <p style={{fontSize:13,color:'#9ca3af',marginBottom:22}}>{tab==='login'?'Entre para acessar seu painel':'Comece gratuitamente hoje'}</p>

@@ -4,7 +4,7 @@ const { receiveOrder, getStatus } = require('../controllers/brendiController');
 const auth = require('../middleware/auth');
 
 // Webhook recebido da Brendi (sem auth — chamado pela Brendi)
-router.post('/', receiveOrder);
+// OBRIGATÓRIO informar o wabaAccountId na URL para evitar mistura entre empresas
 router.post('/:wabaAccountId', receiveOrder);
 
 // Status para o painel interno

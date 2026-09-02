@@ -53,17 +53,17 @@ async function receiveOrder(req, res) {
       return res.json({ success: true, message: 'Recebido, mas sem telefone do cliente.' });
     }
 
-    // Rotear para wabaAccount
-    let wabaAccount;
-    if (req.params?.wabaAccountId) {
-      wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: req.params.wabaAccountId } });
-    } else {
-      wabaAccount = await prisma.wabaAccount.findFirst({ orderBy: { createdAt: 'asc' } });
+    // Rotear para wabaAccount — wabaAccountId OBRIGATÓRIO na URL
+    const { wabaAccountId } = req.params;
+    if (!wabaAccountId) {
+      console.warn('[Brendi] Requisição sem wabaAccountId — rejeitada');
+      return res.status(400).json({ success: false, message: 'wabaAccountId obrigatório na URL.' });
     }
 
+    const wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: wabaAccountId } });
     if (!wabaAccount) {
-      console.warn('[Brendi] Nenhuma WabaAccount encontrada');
-      return res.json({ success: true, message: 'Webhook funcionando! Configure uma conta WhatsApp.' });
+      console.warn('[Brendi] WabaAccount não encontrada:', wabaAccountId);
+      return res.status(404).json({ success: false, message: 'Conta não encontrada.' });
     }
     console.log('[Brendi] Roteando para conta:', wabaAccount.displayName);
 

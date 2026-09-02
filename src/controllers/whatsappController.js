@@ -228,7 +228,7 @@ const webhookReceive = async (req, res) => {
 // ─── Auto-reply: redirecionar cliente para o WhatsApp de atendimento ─────────
 
 const AUTO_REPLY_TEXT =
-  'Para dar continuidade no atendimento, fale conosco pelo nosso WhatsApp: https://wa.me/5547913454493';
+  'Para dar continuidade no atendimento, fale conosco pelo nosso WhatsApp: https://wa.me/5547991345493';
 const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
 
 // contactId → timestamp do último auto-reply enviado

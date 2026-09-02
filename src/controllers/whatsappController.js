@@ -225,6 +225,63 @@ const webhookReceive = async (req, res) => {
   }
 };
 
+// ─── Auto-reply: redirecionar cliente para o WhatsApp de atendimento ─────────
+
+const AUTO_REPLY_TEXT =
+  'Para dar continuidade no atendimento, fale conosco pelo nosso WhatsApp: https://wa.me/5547913454493';
+const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+
+// contactId → timestamp do último auto-reply enviado
+const autoReplyCache = new Map();
+
+const sendAutoReply = async (wabaAccount, contact) => {
+  try {
+    const lastSent = autoReplyCache.get(contact.id);
+    if (lastSent && Date.now() - lastSent < AUTO_REPLY_COOLDOWN_MS) return;
+
+    autoReplyCache.set(contact.id, Date.now());
+
+    const response = await axios.post(
+      `${META_BASE_URL}/${META_API_VERSION}/${wabaAccount.phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: contact.phone,
+        type: 'text',
+        text: { body: AUTO_REPLY_TEXT },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${wabaAccount.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const waMessageId = response.data?.messages?.[0]?.id;
+
+    await prisma.message.create({
+      data: {
+        wabaAccountId: wabaAccount.id,
+        contactId: contact.id,
+        userId: wabaAccount.userId,
+        waMessageId,
+        direction: 'OUTBOUND',
+        type: 'TEXT',
+        status: 'SENT',
+        content: { text: AUTO_REPLY_TEXT },
+        sentAt: new Date(),
+      },
+    });
+
+    console.log(`[Webhook] Auto-reply enviado para ${contact.phone}`);
+  } catch (error) {
+    // Se o envio falhou, libera para tentar de novo na próxima mensagem
+    autoReplyCache.delete(contact.id);
+    console.error('[Webhook] sendAutoReply:', error?.response?.data || error.message);
+  }
+};
+
 const processInboundMessage = async (value, msg) => {
   try {
     const wabaId = value.metadata?.phone_number_id;
@@ -281,6 +338,11 @@ const processInboundMessage = async (value, msg) => {
     });
 
     console.log(`[Webhook] Mensagem recebida de ${phone}`);
+
+    // Auto-reply, exceto se a mensagem vier do próprio número da conta (evitar loop)
+    if (phone !== wabaAccount.phoneNumberId && phone !== value.metadata?.display_phone_number) {
+      await sendAutoReply(wabaAccount, contact);
+    }
   } catch (error) {
     console.error('[Webhook] processInboundMessage:', error);
   }

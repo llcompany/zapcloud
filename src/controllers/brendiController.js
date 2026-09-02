@@ -1,8 +1,44 @@
 const crypto = require('crypto');
+const axios = require('axios');
 const prisma = require('../utils/prisma');
 const { normalizePhone } = require('./multipedidosController');
 
+const BRENDI_BASE_URL = 'https://api.brendi.com.br';
 let stats = { total: 0, lastAt: null, lastPayload: null };
+
+// Cache do token OAuth2 (válido por 1h em média)
+let tokenCache = { token: null, expiresAt: 0 };
+
+async function getBrendiToken() {
+  if (tokenCache.token && Date.now() < tokenCache.expiresAt) {
+    return tokenCache.token;
+  }
+  const clientId     = process.env.BRENDI_CLIENT_ID;
+  const clientSecret = process.env.BRENDI_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error('BRENDI_CLIENT_ID / BRENDI_CLIENT_SECRET não configurados');
+
+  const res = await axios.post(
+    `${BRENDI_BASE_URL}/oauth/token`,
+    new URLSearchParams({
+      grant_type:    'client_credentials',
+      client_id:     clientId,
+      client_secret: clientSecret,
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+  );
+  const { access_token, expires_in } = res.data;
+  tokenCache = { token: access_token, expiresAt: Date.now() + (expires_in - 60) * 1000 };
+  console.log('[Brendi] Token OAuth2 obtido');
+  return access_token;
+}
+
+async function getOrderDetails(orderId, token) {
+  const res = await axios.get(
+    `${BRENDI_BASE_URL}/v1/orders/${orderId}`,
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 }
+  );
+  return res.data;
+}
 
 async function receiveOrder(req, res) {
   try {
@@ -13,69 +49,66 @@ async function receiveOrder(req, res) {
     stats.lastAt = new Date().toISOString();
     stats.lastPayload = body;
 
-    // Verificar assinatura HMAC
-    const clientSecret = process.env.BRENDI_CLIENT_SECRET;
-    if (clientSecret) {
-      const signature = req.headers['x-app-signature'];
-      if (signature) {
-        const rawBody = JSON.stringify(body);
-        const expected = crypto.createHmac('sha256', clientSecret)
-          .update(rawBody).digest('hex').toLowerCase();
-        if (signature.toLowerCase() !== expected) {
-          console.warn('[Brendi] Assinatura inválida recebida:', signature?.slice(0, 16));
-          // Log mas não rejeita durante homologação
-        }
-      }
-    }
+    // Responde 200 imediatamente para a Brendi não reenviar
+    res.status(200).json({ success: true });
 
     // Só processa eventos de novo pedido
     const eventType = body.eventType;
     if (eventType !== 'CREATED') {
       console.log('[Brendi] Ignorando evento:', eventType);
-      return res.status(200).json({ success: true, message: 'Evento ignorado.' });
+      return;
     }
 
-    const order = body.order;
-    if (!order) {
-      console.warn('[Brendi] Nenhum order no payload');
-      return res.json({ success: true, message: 'Sem dados de pedido.' });
-    }
-
-    const customer = order.customer || {};
-    const phone = customer.phone?.number || '';
-    const name = customer.name || 'Cliente Brendi';
-    const orderId = body.orderId || order.id;
-    const orderTotal = parseFloat(order.total?.orderAmount?.value || 0);
-    const items = extractItems(order.items || []);
-
-    if (!phone) {
-      console.warn('[Brendi] Nenhum telefone encontrado no payload');
-      return res.json({ success: true, message: 'Recebido, mas sem telefone do cliente.' });
+    const orderId = body.orderId;
+    if (!orderId) {
+      console.warn('[Brendi] orderId ausente no evento');
+      return;
     }
 
     // Rotear para wabaAccount — wabaAccountId OBRIGATÓRIO na URL
     const { wabaAccountId } = req.params;
     if (!wabaAccountId) {
-      console.warn('[Brendi] Requisição sem wabaAccountId — rejeitada');
-      return res.status(400).json({ success: false, message: 'wabaAccountId obrigatório na URL.' });
+      console.warn('[Brendi] wabaAccountId ausente na URL');
+      return;
     }
-
     const wabaAccount = await prisma.wabaAccount.findUnique({ where: { id: wabaAccountId } });
     if (!wabaAccount) {
       console.warn('[Brendi] WabaAccount não encontrada:', wabaAccountId);
-      return res.status(404).json({ success: false, message: 'Conta não encontrada.' });
+      return;
     }
     console.log('[Brendi] Roteando para conta:', wabaAccount.displayName);
 
+    // Buscar detalhes do pedido na API da Brendi
+    let order;
+    try {
+      const token = await getBrendiToken();
+      order = await getOrderDetails(orderId, token);
+      console.log('[Brendi] Detalhes do pedido obtidos:', orderId);
+    } catch (err) {
+      console.error('[Brendi] Erro ao buscar pedido:', err.response?.data || err.message);
+      return;
+    }
+
+    const customer    = order.customer || {};
+    const phone       = customer.phone?.number || '';
+    const name        = customer.name || 'Cliente Brendi';
+    const orderTotal  = parseFloat(order.total?.orderAmount?.value || 0);
+    const items       = extractItems(order.items || []);
+    const externalId  = String(orderId);
+
+    if (!phone) {
+      console.warn('[Brendi] Nenhum telefone encontrado no pedido:', orderId);
+      return;
+    }
+
     const normalizedPhone = normalizePhone(phone);
-    const externalId = orderId ? String(orderId) : null;
 
     const existing = await prisma.crmCustomer.findFirst({
       where: { wabaAccountId: wabaAccount.id, phone: normalizedPhone },
     });
 
     // Detectar reentrega
-    const isReplay = !!(existing && externalId && await prisma.customerOrder.findUnique({
+    const isReplay = !!(existing && await prisma.customerOrder.findUnique({
       where: { crmCustomerId_externalId: { crmCustomerId: existing.id, externalId } },
     }));
 
@@ -83,15 +116,13 @@ async function receiveOrder(req, res) {
 
     if (isReplay) {
       crmCustomer = existing;
-      console.log('[Brendi] Pedido ' + externalId + ' reentregue para ' + normalizedPhone + ' — agregados preservados');
+      console.log('[Brendi] Pedido reentregue:', externalId, '— agregados preservados');
     } else if (existing) {
       const newTotal  = existing.totalOrders + 1;
       const newSpent  = parseFloat(existing.totalSpent) + orderTotal;
       const newTicket = newSpent / newTotal;
       let favItems = existing.favoriteItems || [];
-      if (items.length) {
-        favItems = mergeFavoriteItems(favItems, items);
-      }
+      if (items.length) favItems = mergeFavoriteItems(favItems, items);
       crmCustomer = await prisma.crmCustomer.update({
         where: { id: existing.id },
         data: {
@@ -106,7 +137,7 @@ async function receiveOrder(req, res) {
           source:        'brendi',
         },
       });
-      console.log('[Brendi] Cliente atualizado: ' + normalizedPhone + ' (pedido #' + newTotal + ')');
+      console.log('[Brendi] Cliente atualizado:', normalizedPhone, '(pedido #' + newTotal + ')');
     } else {
       const favItems = mergeFavoriteItems([], items);
       crmCustomer = await prisma.crmCustomer.create({
@@ -124,46 +155,28 @@ async function receiveOrder(req, res) {
           preferredDayOfWeek: new Date().getDay(),
           tags:               ['brendi'],
           source:             'brendi',
-          externalId:         String(orderId || ''),
+          externalId:         externalId,
         },
       });
-      console.log('[Brendi] Novo cliente criado: ' + normalizedPhone);
+      console.log('[Brendi] Novo cliente criado:', normalizedPhone);
     }
 
-    // Upsert do pedido
-    if (externalId) {
-      await prisma.customerOrder.upsert({
-        where: { crmCustomerId_externalId: { crmCustomerId: crmCustomer.id, externalId } },
-        update: { total: orderTotal, items },
-        create: {
-          crmCustomerId: crmCustomer.id,
-          wabaAccountId: wabaAccount.id,
-          externalId,
-          total:    orderTotal,
-          items,
-          source:   'brendi',
-          orderedAt: new Date(),
-        },
-      });
-    } else {
-      await prisma.customerOrder.create({
-        data: {
-          crmCustomerId: crmCustomer.id,
-          wabaAccountId: wabaAccount.id,
-          externalId:    null,
-          total:    orderTotal,
-          items,
-          source:   'brendi',
-          orderedAt: new Date(),
-        },
-      });
-    }
-
+    await prisma.customerOrder.upsert({
+      where: { crmCustomerId_externalId: { crmCustomerId: crmCustomer.id, externalId } },
+      update: { total: orderTotal, items },
+      create: {
+        crmCustomerId: crmCustomer.id,
+        wabaAccountId: wabaAccount.id,
+        externalId,
+        total:    orderTotal,
+        items,
+        source:   'brendi',
+        orderedAt: new Date(),
+      },
+    });
     console.log('[Brendi] Pedido salvo: R$' + orderTotal.toFixed(2));
-    res.status(200).json({ success: true, message: 'Pedido processado com sucesso.' });
   } catch (err) {
     console.error('[Brendi] Erro ao processar webhook:', err);
-    res.status(500).json({ success: false, message: 'Erro interno.' });
   }
 }
 
@@ -195,22 +208,16 @@ function topItemFrom(favItems) {
 async function getStatus(req, res) {
   try {
     const wabaAccount = await prisma.wabaAccount.findFirst({ where: { userId: req.user.id } });
-    const baseUrl = process.env.PUBLIC_URL || 'http://localhost:3000';
+    const baseUrl = process.env.PUBLIC_URL || 'https://zapcloud-production-a340.up.railway.app';
     const webhookUrl = wabaAccount
       ? `${baseUrl}/webhook/brendi/${wabaAccount.id}`
-      : `${baseUrl}/webhook/brendi`;
+      : `${baseUrl}/webhook/brendi/{wabaAccountId}`;
     const totalCustomers = await prisma.crmCustomer.count({
       where: { source: 'brendi', ...(wabaAccount ? { wabaAccountId: wabaAccount.id } : {}) },
     });
     res.json({
       success: true,
-      data: {
-        webhookUrl,
-        totalReceived:   stats.total,
-        lastAt:          stats.lastAt,
-        lastPayload:     stats.lastPayload,
-        customersInCrm:  totalCustomers,
-      },
+      data: { webhookUrl, totalReceived: stats.total, lastAt: stats.lastAt, lastPayload: stats.lastPayload, customersInCrm: totalCustomers },
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

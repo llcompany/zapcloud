@@ -651,6 +651,7 @@ function ConnectOficial({token,onBack}){
     if(!window.FB){setErr('SDK do Facebook ainda carregando. Tente novamente em instantes.');return;}
     setStatus('loading');setErr('');
     window.FB.login(function(response){
+      console.log('[FB.login] response:', JSON.stringify(response));
       if(response.authResponse&&response.authResponse.code){
         fetch(`${API}/api/meta/embedded-signup`,{
           method:'POST',
@@ -665,7 +666,7 @@ function ConnectOficial({token,onBack}){
       }else if(response.status==='not_authorized'){
         setErr('Permissões não concedidas. Tente novamente e autorize o acesso.');setStatus('error');
       }else{
-        setErr('Login cancelado.');setStatus('idle');
+        setErr('Login cancelado. Resposta: '+JSON.stringify(response));setStatus('idle');
       }
     },{
       scope:'whatsapp_business_management,whatsapp_business_messaging',

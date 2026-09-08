@@ -632,10 +632,18 @@ function ConnectOficial({token,onBack}){
       }).catch(()=>{});
   },[token]);
 
-  // Aguarda o SDK do Facebook carregar
+  // Aguarda o SDK do Facebook carregar (timeout de 12s)
   useEffect(()=>{
     if(window.FB){setFbReady(true);return;}
-    const iv=setInterval(()=>{if(window.FB){setFbReady(true);clearInterval(iv);}},300);
+    let elapsed=0;
+    const iv=setInterval(()=>{
+      if(window.FB){setFbReady(true);clearInterval(iv);return;}
+      elapsed+=300;
+      if(elapsed>=12000){
+        clearInterval(iv);
+        setErr('Não foi possível carregar o SDK do Facebook. Verifique se algum bloqueador de anúncios está ativo e recarregue a página.');
+      }
+    },300);
     return()=>clearInterval(iv);
   },[]);
 

@@ -237,26 +237,30 @@ const updateWabaToken = async (req, res) => {
 
 const embeddedSignup = async (req, res) => {
   try {
-    const { code } = req.body;
-    if (!code) return res.status(400).json({ success: false, message: 'code é obrigatório.' });
+    const { code, accessToken: rawToken } = req.body;
+    if (!code && !rawToken) return res.status(400).json({ success: false, message: 'code ou accessToken é obrigatório.' });
 
-    // 1. Trocar code por token de curta duração
-    const tokenRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
-      params: {
-        client_id:     process.env.META_APP_ID,
-        client_secret: process.env.META_APP_SECRET,
-        redirect_uri:  'https://www.facebook.com/connect/login_success.html',
-        code,
-      },
-    });
-    const shortLivedToken = tokenRes.data.access_token;
+    let shortLivedToken = rawToken;
 
-    // 2. Trocar por token de longa duração (60 dias)
+    if (code) {
+      // Fluxo code: trocar code por token de curta duração
+      const tokenRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
+        params: {
+          client_id:     process.env.META_APP_ID,
+          client_secret: process.env.META_APP_SECRET,
+          redirect_uri:  'https://www.facebook.com/connect/login_success.html',
+          code,
+        },
+      });
+      shortLivedToken = tokenRes.data.access_token;
+    }
+
+    // Trocar por token de longa duração (60 dias)
     const llRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
       params: {
-        grant_type:      'fb_exchange_token',
-        client_id:       process.env.META_APP_ID,
-        client_secret:   process.env.META_APP_SECRET,
+        grant_type:        'fb_exchange_token',
+        client_id:         process.env.META_APP_ID,
+        client_secret:     process.env.META_APP_SECRET,
         fb_exchange_token: shortLivedToken,
       },
     });

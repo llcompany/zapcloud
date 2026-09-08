@@ -652,11 +652,11 @@ function ConnectOficial({token,onBack}){
     setStatus('loading');setErr('');
     window.FB.login(function(response){
       console.log('[FB.login] response:', JSON.stringify(response));
-      if(response.authResponse&&response.authResponse.code){
+      if(response.authResponse&&response.authResponse.accessToken){
         fetch(`${API}/api/meta/embedded-signup`,{
           method:'POST',
           headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
-          body:JSON.stringify({code:response.authResponse.code}),
+          body:JSON.stringify({accessToken:response.authResponse.accessToken}),
         })
         .then(r=>r.json()).then(d=>{
           if(d.success&&d.data?.accounts?.length>0){setAccounts(d.data.accounts);setStatus('success');}
@@ -670,9 +670,6 @@ function ConnectOficial({token,onBack}){
       }
     },{
       scope:'whatsapp_business_management,whatsapp_business_messaging',
-      response_type:'code',
-      override_default_response_type:true,
-      extras:{sessionInfoVersion:'2'},
     });
   };
 

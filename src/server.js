@@ -59,10 +59,11 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('/', (req, res) => {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net https://connect.facebook.net; " +
     "style-src 'self' 'unsafe-inline'; " +
     "connect-src *; " +
-    "img-src 'self' data:; " +
+    "img-src 'self' data: https://*.facebook.com https://*.fbcdn.net; " +
+    "frame-src https://www.facebook.com https://web.facebook.com; " +
     "font-src 'self' data:;"
   );
   res.sendFile(path.join(__dirname, '..', 'zapcloud.html'));

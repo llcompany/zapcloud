@@ -230,4 +230,107 @@ const updateWabaToken = async (req, res) => {
   }
 };
 
-module.exports = { getAuthUrl, handleCallback, listWabaAccounts, disconnectWabaAccount, updateWabaToken };
+// ─── Embedded Signup (JS SDK flow) ───────────────────────────────────────────
+// Recebe o `code` gerado pelo FB.login() no frontend e faz a troca por token.
+// redirect_uri DEVE ser 'https://www.facebook.com/connect/login_success.html'
+// quando o código vem do JS SDK (diferente do fluxo de redirect server-side).
+
+const embeddedSignup = async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ success: false, message: 'code é obrigatório.' });
+
+    // 1. Trocar code por token de curta duração
+    const tokenRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
+      params: {
+        client_id:     process.env.META_APP_ID,
+        client_secret: process.env.META_APP_SECRET,
+        redirect_uri:  'https://www.facebook.com/connect/login_success.html',
+        code,
+      },
+    });
+    const shortLivedToken = tokenRes.data.access_token;
+
+    // 2. Trocar por token de longa duração (60 dias)
+    const llRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
+      params: {
+        grant_type:      'fb_exchange_token',
+        client_id:       process.env.META_APP_ID,
+        client_secret:   process.env.META_APP_SECRET,
+        fb_exchange_token: shortLivedToken,
+      },
+    });
+    const accessToken = llRes.data.access_token;
+
+    // 3. Buscar negócios e WABAs vinculados
+    const wabasRes = await axios.get(`${META_BASE_URL}/${META_API_VERSION}/me/businesses`, {
+      params: { access_token: accessToken, fields: 'id,name,whatsapp_business_accounts' },
+    });
+    const businesses = wabasRes.data.data || [];
+
+    const savedAccounts = [];
+    for (const business of businesses) {
+      const wabaList = business.whatsapp_business_accounts?.data || [];
+      for (const waba of wabaList) {
+        // 4. Buscar números de telefone
+        const phonesRes = await axios.get(
+          `${META_BASE_URL}/${META_API_VERSION}/${waba.id}/phone_numbers`,
+          { params: { access_token: accessToken } }
+        );
+        const phones = phonesRes.data.data || [];
+
+        for (const phone of phones) {
+          const account = await prisma.wabaAccount.upsert({
+            where: { phoneNumberId: phone.id },
+            update: {
+              wabaId:      waba.id,
+              phoneNumber: phone.display_phone_number,
+              displayName: phone.verified_name || phone.display_phone_number,
+              accessToken,
+              isActive:    true,
+            },
+            create: {
+              userId:        req.user.id,
+              wabaId:        waba.id,
+              phoneNumberId: phone.id,
+              phoneNumber:   phone.display_phone_number,
+              displayName:   phone.verified_name || phone.display_phone_number,
+              accessToken,
+            },
+          });
+          savedAccounts.push(account);
+
+          // 5. Inscrever app para receber eventos deste WABA
+          try {
+            await axios.post(
+              `${META_BASE_URL}/${META_API_VERSION}/${waba.id}/subscribed_apps`,
+              null,
+              { params: { access_token: accessToken } }
+            );
+            console.log('[Embedded Signup] App inscrito no WABA:', waba.id);
+          } catch (e) {
+            console.warn('[Embedded Signup] Subscribe falhou:', e.response?.data || e.message);
+          }
+        }
+      }
+    }
+
+    if (savedAccounts.length === 0) {
+      return res.status(422).json({
+        success: false,
+        message: 'Nenhuma conta WhatsApp Business encontrada. Verifique se você tem um WABA com número registrado.',
+      });
+    }
+
+    return res.json({ success: true, data: { accounts: savedAccounts } });
+  } catch (err) {
+    console.error('[Embedded Signup]', err?.response?.data || err.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao processar Embedded Signup.',
+      error:   err?.response?.data,
+    });
+  }
+};
+
+module.exports = { getAuthUrl, handleCallback, listWabaAccounts, disconnectWabaAccount, updateWabaToken, embeddedSignup };

@@ -8,6 +8,7 @@ const {
   listWabaAccounts,
   disconnectWabaAccount,
   updateWabaToken,
+  embeddedSignup,
 } = require('../controllers/metaController');
 const {
   listTemplates,
@@ -27,6 +28,9 @@ router.get('/auth-url', getAuthUrl);
 // GET /api/meta/callback — callback OAuth após o usuário autorizar
 // (o state carrega o userId; o middleware authenticate também valida)
 router.get('/callback', handleCallback);
+
+// POST /api/meta/embedded-signup — troca o code do FB.login() por token e salva a conta
+router.post('/embedded-signup', embeddedSignup);
 
 // GET /api/meta/accounts — lista contas WABA do usuário
 router.get('/accounts', listWabaAccounts);

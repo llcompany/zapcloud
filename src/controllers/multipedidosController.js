@@ -156,21 +156,44 @@ async function getStatus(req, res) {
     const wabaAccount = await prisma.wabaAccount.findFirst({
       where: { userId: req.user.id },
     });
+
+    if (!wabaAccount) {
+      return res.json({
+        success: true,
+        data: {
+          webhookUrl:      null,
+          totalReceived:   0,
+          lastAt:          null,
+          lastPayload:     null,
+          customersInCrm:  0,
+          tokenConfigured: false,
+        },
+      });
+    }
+
     const baseUrl = process.env.PUBLIC_URL || 'http://localhost:3000';
-    const webhookUrl = wabaAccount
-      ? `${baseUrl}/api/multipedidos/webhook/${wabaAccount.id}`
-      : `${baseUrl}/api/multipedidos/webhook`;
+    const webhookUrl = `${baseUrl}/api/multipedidos/webhook/${wabaAccount.id}`;
 
     const totalCustomers = await prisma.crmCustomer.count({
-      where: { source: 'multipedidos', ...(wabaAccount ? { wabaAccountId: wabaAccount.id } : {}) },
+      where: { source: 'multipedidos', wabaAccountId: wabaAccount.id },
     });
+
+    const lastOrder = await prisma.customerOrder.findFirst({
+      where: { wabaAccountId: wabaAccount.id, source: 'multipedidos' },
+      orderBy: { orderedAt: 'desc' },
+      select: { orderedAt: true },
+    });
+
+    const totalOrders = await prisma.customerOrder.count({
+      where: { wabaAccountId: wabaAccount.id, source: 'multipedidos' },
+    });
+
     res.json({
       success: true,
       data: {
         webhookUrl,
-        totalReceived:   stats.total,
-        lastAt:          stats.lastAt,
-        lastPayload:     stats.lastPayload,
+        totalReceived:   totalOrders,
+        lastAt:          lastOrder?.orderedAt || null,
         customersInCrm:  totalCustomers,
         tokenConfigured: !!process.env.MULTIPEDIDOS_TOKEN,
       },

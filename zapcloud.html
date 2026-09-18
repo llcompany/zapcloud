@@ -929,11 +929,16 @@ function Integracoes({token}){
   const [copied,setCopied]=useState(false);
   const [testing,setTesting]=useState(false);
   const [testResult,setTestResult]=useState(null);
+  const [brendiStatus,setBrendiStatus]=useState(null);
+  const [brendiCopied,setBrendiCopied]=useState(false);
 
   useEffect(()=>{
     if(!token)return;
     fetch(`${API}/api/multipedidos/status`,{headers:{'Authorization':`Bearer ${token}`}})
       .then(r=>r.json()).then(d=>{ if(d.success) setStatus(d.data); })
+      .catch(()=>{});
+    fetch(`${API}/webhook/brendi/status`,{headers:{'Authorization':`Bearer ${token}`}})
+      .then(r=>r.json()).then(d=>{ if(d.success) setBrendiStatus(d.data); })
       .catch(()=>{});
   },[token]);
 
@@ -1055,6 +1060,61 @@ function Integracoes({token}){
           {testResult&&<span style={{fontSize:12,fontWeight:500,color:testResult.ok?C.p:'#DC2626'}}>
             {testResult.ok?'✅':'❌'} {testResult.msg}
           </span>}
+        </div>
+      </div>
+    </div>
+
+    {/* ── Card Brendi ── */}
+    <div style={{background:'#fff',borderRadius:20,border:`1.5px solid ${C.br}`,overflow:'hidden',marginBottom:14}}>
+      <div style={{padding:'18px 22px',borderBottom:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:14}}>
+        <div style={{width:44,height:44,borderRadius:12,background:'#E8003D',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <div style={{flex:1}}>
+          <p style={{fontWeight:700,fontSize:15,color:C.tx}}>Brendi</p>
+          <p style={{fontSize:12,color:C.mt}}>Cardápio digital · Importa clientes e pedidos automaticamente</p>
+        </div>
+        <span style={{fontSize:11,padding:'4px 12px',borderRadius:20,fontWeight:600,
+          background:brendiStatus?.webhookUrl?'#DCFCE7':'#FEF9C3',
+          color:brendiStatus?.webhookUrl?'#166534':'#854D0E'}}>
+          {brendiStatus?.webhookUrl?'● Ativo':'○ Aguardando pedido'}
+        </span>
+      </div>
+      <div style={{padding:'20px 22px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:18}}>
+          {[
+            {label:'Pedidos recebidos',value:brendiStatus?.totalReceived??0},
+            {label:'Clientes no CRM',  value:brendiStatus?.customersInCrm??0},
+            {label:'Último pedido',    value:brendiStatus?.lastAt?new Date(brendiStatus.lastAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—'},
+          ].map(s=>(
+            <div key={s.label} style={{background:C.bg,borderRadius:14,padding:'14px 16px',textAlign:'center'}}>
+              <p style={{fontSize:28,fontWeight:800,color:C.p,marginBottom:4}}>{s.value}</p>
+              <p style={{fontSize:11,color:C.mt}}>{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        <div style={{background:'#FFF1F4',border:'1px solid #FFD6DF',borderRadius:14,padding:16,marginBottom:18}}>
+          <p style={{fontWeight:600,fontSize:13,color:'#9B1239',marginBottom:10}}>📋 Como configurar no painel da Brendi:</p>
+          {['Acesse seu painel da Brendi','Vá em Integrações → API Pública → ZapFood','Clique em Configurar e cole a URL abaixo no campo Webhook URL','Salve e aguarde o próximo pedido chegar automaticamente'].map((s,i)=>(
+            <div key={i} style={{display:'flex',gap:10,marginBottom:6,alignItems:'flex-start'}}>
+              <div style={{width:22,height:22,borderRadius:'50%',background:'#E8003D',color:'#fff',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{i+1}</div>
+              <p style={{fontSize:13,color:'#6B2737',lineHeight:1.4}}>{s}</p>
+            </div>
+          ))}
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <label style={{display:'block',fontSize:12,fontWeight:600,color:C.tx,marginBottom:6}}>🔗 URL do Webhook (copie e cole na Brendi)</label>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <div style={{flex:1,padding:'11px 14px',borderRadius:12,background:C.bg,border:`1px solid ${C.br}`,fontSize:12,color:C.tx,wordBreak:'break-all',fontFamily:'monospace'}}>
+              {brendiStatus?.webhookUrl||'Conecte um número WhatsApp primeiro'}
+            </div>
+            {brendiStatus?.webhookUrl&&<button onClick={()=>{navigator.clipboard.writeText(brendiStatus.webhookUrl);setBrendiCopied(true);setTimeout(()=>setBrendiCopied(false),2000);}}
+              style={{padding:'10px 16px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:600,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>
+              {brendiCopied?'Copiado!':'Copiar'}
+            </button>}
+          </div>
         </div>
       </div>
     </div>

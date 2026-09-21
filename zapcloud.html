@@ -1958,7 +1958,7 @@ function Campaigns({token,wabaId}){
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list'); // list | create | detail
   const [selected,setSelected]=useState(null);
-  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});
+  const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:'',tag:''}});
   const [sourceDropOpen,setSourceDropOpen]=useState(false);
   const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
@@ -2055,6 +2055,7 @@ function Campaigns({token,wabaId}){
     // 0 = domingo — o valor '' é "qualquer dia", por isso não dá para usar truthy
     if(form.segmentFilter.preferredDay!=='') sf.preferredDay=parseInt(form.segmentFilter.preferredDay);
     if(form.segmentFilter.topItem.trim()) sf.topItem=form.segmentFilter.topItem.trim();
+    if(form.segmentFilter.tag.trim()) sf.tag=form.segmentFilter.tag.trim();
     return sf;
   };
 
@@ -2081,7 +2082,7 @@ function Campaigns({token,wabaId}){
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({name:form.name,templateId:form.templateId,templateParams:form.templateParams,segmentFilter:sf,sourceFilter:buildSourceFilter()})});
       const d=await r.json();
-      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:''}});setPreview(null);}
+      if(d.success){load();setView('list');setForm({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:'',tag:''}});setPreview(null);}
       else alert('Erro: '+d.message);
     }catch(e){alert('Erro: '+e.message);}
     setSaving(false);
@@ -2210,6 +2211,8 @@ function Campaigns({token,wabaId}){
             {(()=>{
               const srcOpts=[
                 {v:'multipedidos',l:'Multipedidos'},
+                {v:'importado',l:'Importado (lista externa)'},
+                {v:'brendi',l:'Brendi'},
                 {v:'fidelidade_10x',l:'Fidelidade 10x'},{v:'fidelidade_20x',l:'Fidelidade 20x'},
                 {v:'fidelidade_30x',l:'Fidelidade 30x'},{v:'fidelidade_40x',l:'Fidelidade 40x'},
                 {v:'fidelidade_50x',l:'Fidelidade 50x'},{v:'fidelidade_60x',l:'Fidelidade 60x'},
@@ -2283,6 +2286,16 @@ function Campaigns({token,wabaId}){
               <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Sabor/item mais pedido</label>
               <input type="text" disabled={todos} value={form.segmentFilter.topItem} onChange={e=>setForm(p=>({...p,segmentFilter:{...p.segmentFilter,topItem:e.target.value}}))} placeholder="Ex: Pizza, Hamburguer..." style={inp2}/>
             </div>
+          </div>
+          <div style={{marginTop:12,opacity:todos?.45:1,pointerEvents:todos?'none':'auto'}}>
+            <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Filtrar por tag</label>
+            <input type="text" disabled={todos} value={form.segmentFilter.tag} onChange={e=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:e.target.value}}));}} placeholder="Ex: disparo-21set, importado..." style={inp2}/>
+            {['disparo-21set','disparo-22set','disparo-23set','disparo-28set','disparo-29set','disparo-30set'].map(t=>(
+              <button key={t} disabled={todos} onClick={()=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:t}}));}}
+                style={{marginTop:6,marginRight:6,padding:'4px 10px',borderRadius:20,border:`1px solid ${form.segmentFilter.tag===t?C.p:C.br}`,background:form.segmentFilter.tag===t?C.p:'#fff',color:form.segmentFilter.tag===t?'#fff':C.mt,fontSize:11,cursor:'pointer',fontWeight:form.segmentFilter.tag===t?600:400}}>
+                {t}
+              </button>
+            ))}
           </div>
           <button onClick={()=>doPreview()} style={{marginTop:14,padding:'9px 20px',borderRadius:10,border:`1px solid ${C.p}`,background:C.p+'15',color:C.dk,fontWeight:600,fontSize:13}}>
             👁 Calcular alcance

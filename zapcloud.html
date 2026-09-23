@@ -670,6 +670,8 @@ function ConnectOficial({token,onBack}){
       }else{
         // Popup fechou sem retornar código — pode ser fluxo "já conectado"
         window.FB.getLoginStatus(function(statusRes){
+          console.log('[ZapFood] FB.login response:', JSON.stringify(response));
+          console.log('[ZapFood] getLoginStatus:', JSON.stringify(statusRes));
           if(statusRes.status==='connected'&&statusRes.authResponse?.accessToken){
             fetch(`${API}/api/meta/embedded-signup`,{
               method:'POST',

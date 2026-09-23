@@ -668,7 +668,23 @@ function ConnectOficial({token,onBack}){
       }else if(response.status==='not_authorized'){
         setErr('Permissões não concedidas. Tente novamente e autorize o acesso.');setStatus('error');
       }else{
-        setErr('Login cancelado ou popup fechado. Tente novamente.');setStatus('idle');
+        // Popup fechou sem retornar código — pode ser fluxo "já conectado"
+        window.FB.getLoginStatus(function(statusRes){
+          if(statusRes.status==='connected'&&statusRes.authResponse?.accessToken){
+            fetch(`${API}/api/meta/embedded-signup`,{
+              method:'POST',
+              headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+              body:JSON.stringify({accessToken:statusRes.authResponse.accessToken}),
+            })
+            .then(r=>r.json()).then(d=>{
+              if(d.success&&d.data?.accounts?.length>0){setAccounts(d.data.accounts);setStatus('success');}
+              else{setErr(d.message||'Nenhuma conta encontrada.');setStatus('error');}
+            })
+            .catch(()=>{setErr('Erro de conexão com o servidor.');setStatus('error');});
+          }else{
+            setErr('Login cancelado ou popup fechado. Tente novamente.');setStatus('idle');
+          }
+        },{scopes:'whatsapp_business_management,whatsapp_business_messaging,business_management'});
       }
     },{
       config_id:'2548900568946222',

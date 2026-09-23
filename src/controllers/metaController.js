@@ -237,7 +237,37 @@ const updateWabaToken = async (req, res) => {
 
 const embeddedSignup = async (req, res) => {
   try {
-    const { code, accessToken: rawToken } = req.body;
+    const { code, accessToken: rawToken, phoneNumberId, wabaId } = req.body;
+
+    // Novo caso: phone_number_id e waba_id vindos do sessionInfoVersion:2
+    if (phoneNumberId && wabaId) {
+      const accessToken = process.env.WHATSAPP_TOKEN;
+      if (!accessToken) return res.status(500).json({ success: false, message: 'WHATSAPP_TOKEN não configurado.' });
+      try {
+        const account = await prisma.wabaAccount.upsert({
+          where: { phoneNumberId },
+          update: { wabaId, accessToken, isActive: true },
+          create: {
+            userId: req.user.id,
+            wabaId,
+            phoneNumberId,
+            displayName: 'WhatsApp Business',
+            accessToken,
+          },
+        });
+        try {
+          await axios.post(
+            `${META_BASE_URL}/${META_API_VERSION}/${wabaId}/subscribed_apps`,
+            null,
+            { params: { access_token: accessToken } }
+          );
+        } catch(e) { console.warn('[Embedded Signup] Subscribe falhou:', e.response?.data || e.message); }
+        return res.json({ success: true, data: { accounts: [account] } });
+      } catch(err) {
+        return res.status(500).json({ success: false, message: 'Erro ao salvar conta.', error: err.message });
+      }
+    }
+
     if (!code && !rawToken) return res.status(400).json({ success: false, message: 'code ou accessToken é obrigatório.' });
 
     let shortLivedToken = rawToken;

@@ -650,6 +650,14 @@ function ConnectOficial({token,onBack}){
   const launchSignup=()=>{
     if(!window.FB){setErr('SDK do Facebook ainda carregando. Tente novamente em instantes.');return;}
     setStatus('loading');setErr('');
+    const debugHandler=(event)=>{
+      console.log('[WA Debug] message de:', event.origin, '| data:', event.data);
+    };
+    window.addEventListener('message',debugHandler);
+
+    // Remover após 2 minutos
+    setTimeout(()=>window.removeEventListener('message',debugHandler),120000);
+
     const messageHandler=(event)=>{
       if(event.origin!=='https://www.facebook.com')return;
       try{

@@ -191,6 +191,34 @@ const previewSegment = async (req, res) => {
   }
 };
 
+// ─── Opções de segmentação (origens e tags reais da base do tenant) ──────────
+// O formulário de campanha monta os filtros a partir daqui — nunca de listas
+// fixas no frontend, que vazariam nomes de segmentos de uma empresa para outra.
+const getSegmentOptions = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+
+    const [sourceRows, tagRows] = await Promise.all([
+      prisma.crmCustomer.findMany({
+        where: { wabaAccountId },
+        select: { source: true },
+        distinct: ['source'],
+      }),
+      prisma.crmCustomer.findMany({
+        where: { wabaAccountId, tags: { isEmpty: false } },
+        select: { tags: true },
+      }),
+    ]);
+
+    const sources = sourceRows.map(r => r.source).filter(Boolean).sort();
+    const tags = [...new Set(tagRows.flatMap(r => r.tags))].filter(Boolean).sort();
+
+    res.json({ success: true, data: { sources, tags } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Erro ao buscar opções de segmentação.', error: err.message });
+  }
+};
+
 // ─── Disparar campanha ────────────────────────────────────────────────────────
 const executeCampaign = async (req, res) => {
   try {
@@ -669,4 +697,4 @@ const getCampaignConverters = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, forceCompleteCampaign, getCampaignConverters };
+module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, forceCompleteCampaign, getCampaignConverters };

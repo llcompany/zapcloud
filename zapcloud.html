@@ -2017,6 +2017,7 @@ function Campaigns({token,wabaId}){
   const [selected,setSelected]=useState(null);
   const [form,setForm]=useState({name:'',templateId:'',templateParams:[],sourceFilter:[],segmentFilter:{allCustomers:false,daysInactive:'',minOrders:'',maxOrders:'',minTicket:'',maxTicket:'',preferredDay:'',topItem:'',tag:''}});
   const [sourceDropOpen,setSourceDropOpen]=useState(false);
+  const [segmentOptions,setSegmentOptions]=useState({sources:[],tags:[]});
   const [templates,setTemplates]=useState([]);
   const [preview,setPreview]=useState(null);
   const [testPhone,setTestPhone]=useState('');
@@ -2049,7 +2050,20 @@ function Campaigns({token,wabaId}){
     }catch(e){}
   };
 
+  // Origens e tags vêm da base real do tenant — cada empresa vê só os seus segmentos
+  const loadSegmentOptions=async()=>{
+    if(!token||!wabaId)return;
+    try{
+      const r=await fetch(`${API}/api/campaigns/${wabaId}/segment-options`,{headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(d.success) setSegmentOptions({sources:d.data.sources||[],tags:d.data.tags||[]});
+    }catch(e){}
+  };
+
   useEffect(()=>{load();loadTemplates();},[token,wabaId]);
+
+  // Recarrega ao abrir o formulário: pega origens/tags criadas depois do mount
+  useEffect(()=>{if(view==='create')loadSegmentOptions();},[view,token,wabaId]);
 
   // ── Relatório ──
   const openReport=async(id)=>{
@@ -2266,15 +2280,9 @@ function Campaigns({token,wabaId}){
           <div style={{marginBottom:14,opacity:todos?.45:1,position:'relative'}}>
             <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Origem dos contatos</label>
             {(()=>{
-              const srcOpts=[
-                {v:'multipedidos',l:'Multipedidos'},
-                {v:'importado',l:'Importado (lista externa)'},
-                {v:'fidelidade_10x',l:'Fidelidade 10x'},{v:'fidelidade_20x',l:'Fidelidade 20x'},
-                {v:'fidelidade_30x',l:'Fidelidade 30x'},{v:'fidelidade_40x',l:'Fidelidade 40x'},
-                {v:'fidelidade_50x',l:'Fidelidade 50x'},{v:'fidelidade_60x',l:'Fidelidade 60x'},
-                {v:'fidelidade_70x',l:'Fidelidade 70x'},{v:'fidelidade_80x',l:'Fidelidade 80x'},
-                {v:'fidelidade_90x',l:'Fidelidade 90x'},{v:'fidelidade_100x',l:'Fidelidade 100x+'},
-              ];
+              // Rótulo amigável a partir do valor gravado no banco (ex: fidelidade_10x → Fidelidade 10x)
+              const srcLabel=v=>String(v).split('_').map(w=>w?w[0].toUpperCase()+w.slice(1):w).join(' ');
+              const srcOpts=segmentOptions.sources.map(v=>({v,l:srcLabel(v)}));
               const sel=form.sourceFilter||[];
               const toggleSrc=(v)=>{
                 setPreview(null);
@@ -2289,6 +2297,7 @@ function Campaigns({token,wabaId}){
                   </div>
                   {sourceDropOpen&&!todos&&(
                     <div style={{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:`1px solid ${C.br}`,borderRadius:12,boxShadow:'0 4px 16px rgba(0,0,0,0.10)',zIndex:99,maxHeight:220,overflowY:'auto',marginTop:4}}>
+                      {srcOpts.length===0&&<p style={{padding:'10px 14px',fontSize:12,color:C.mt}}>Nenhuma origem na sua base ainda.</p>}
                       {srcOpts.map(o=>(
                         <label key={o.v} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',cursor:'pointer',background:sel.includes(o.v)?C.p+'12':'transparent',transition:'background .15s'}}
                           onMouseEnter={e=>e.currentTarget.style.background=sel.includes(o.v)?C.p+'20':C.bg}
@@ -2345,8 +2354,8 @@ function Campaigns({token,wabaId}){
           </div>
           <div style={{marginTop:12,opacity:todos?.45:1,pointerEvents:todos?'none':'auto'}}>
             <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Filtrar por tag</label>
-            <input type="text" disabled={todos} value={form.segmentFilter.tag} onChange={e=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:e.target.value}}));}} placeholder="Ex: disparo-21set, importado..." style={inp2}/>
-            {['disparo-21set','disparo-22set','disparo-23set','disparo-28set','disparo-29set','disparo-30set'].map(t=>(
+            <input type="text" disabled={todos} value={form.segmentFilter.tag} onChange={e=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:e.target.value}}));}} placeholder="Digite uma tag ou escolha abaixo..." style={inp2}/>
+            {segmentOptions.tags.map(t=>(
               <button key={t} disabled={todos} onClick={()=>{setPreview(null);setForm(p=>({...p,segmentFilter:{...p.segmentFilter,tag:t}}));}}
                 style={{marginTop:6,marginRight:6,padding:'4px 10px',borderRadius:20,border:`1px solid ${form.segmentFilter.tag===t?C.p:C.br}`,background:form.segmentFilter.tag===t?C.p:'#fff',color:form.segmentFilter.tag===t?'#fff':C.mt,fontSize:11,cursor:'pointer',fontWeight:form.segmentFilter.tag===t?600:400}}>
                 {t}

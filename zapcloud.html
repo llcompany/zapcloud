@@ -2533,6 +2533,8 @@ function CampaignRelatorio({token,wabaId}){
   const cards=[
     {label:'Mensagens Enviadas', value:data?.totalDisparos??'—', fmt:v=>v,                       icon:'📤', color:C.p},
     {label:'Valor Gasto',   value:data?.totalGasto??null,    fmt:v=>brl(v),                     icon:'💸', color:'#FF7043'},
+    {label:'Vendas no Mês', value:data?.vendasNoMes??'—',    fmt:v=>v,                          icon:'📅', color:'#2B6CB0'},
+    {label:'Receita no Mês',value:data?.receitaNoMes??null,  fmt:v=>brl(v),                     icon:'💵', color:'#2B6CB0'},
     {label:'Vendas Geradas',value:data?.vendasGeradas??'—',  fmt:v=>v,                          icon:'🛒', color:'#276749'},
     {label:'Receita Gerada',value:data?.receitaGerada??null, fmt:v=>brl(v),                     icon:'💰', color:'#276749'},
   ];
@@ -2617,7 +2619,7 @@ function CampaignRelatorio({token,wabaId}){
     </div>
 
     {data&&<p style={{fontSize:11,color:C.mt,marginTop:16,textAlign:'center'}}>
-      Vendas e receita: pedidos realizados em até 30 dias após o recebimento do disparo.
+      Vendas no Mês: pedidos realizados dentro do período selecionado. Vendas Geradas: inclui pedidos feitos em até 30 dias após cada disparo.
     </p>}
   </div>;
 }

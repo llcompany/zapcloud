@@ -477,6 +477,8 @@ const getCampaignReport = async (req, res) => {
 
     let vendasGeradas = 0;
     let receitaGerada = 0;
+    let vendasNoMes   = 0;
+    let receitaNoMes  = 0;
 
     if (campaignIds.length > 0) {
       // Pedidos realizados por clientes que receberam alguma dessas campanhas,
@@ -485,16 +487,21 @@ const getCampaignReport = async (req, res) => {
       // Calcula vendas/receita por campanha e soma, replicando o que cada
       // getCampaignConversions mostra individualmente — assim o total do relatório
       // sempre bate com a soma dos relatórios de cada campanha (um pedido atribuído
-      // a mais de uma campanha conta em todas, como nos relatórios individuais)
+      // a mais de uma campanha conta em todas, como nos relatórios individuais).
+      // As colunas *_no_mes restringem adicionalmente ao próprio período selecionado.
       const rows = await prisma.$queryRawUnsafe(`
         SELECT
           COALESCE(SUM(vendas), 0)::int    AS total_vendas,
-          COALESCE(SUM(receita), 0)::float AS total_receita
+          COALESCE(SUM(receita), 0)::float AS total_receita,
+          COALESCE(SUM(vendas_no_mes), 0)::int    AS vendas_no_mes,
+          COALESCE(SUM(receita_no_mes), 0)::float AS receita_no_mes
         FROM (
           SELECT
             ce."campaignId",
             COUNT(DISTINCT co.id)              AS vendas,
-            COALESCE(SUM(co.total), 0)         AS receita
+            COALESCE(SUM(co.total), 0)         AS receita,
+            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2) AS vendas_no_mes,
+            COALESCE(SUM(co.total) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2), 0) AS receita_no_mes
           FROM zapcloud.campaign_executions ce
           JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
           WHERE ce."campaignId" IN (${idList})
@@ -504,14 +511,16 @@ const getCampaignReport = async (req, res) => {
             AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
           GROUP BY ce."campaignId"
         ) campaign_stats
-      `);
+      `, start, end);
       vendasGeradas = Number(rows[0]?.total_vendas) || 0;
       receitaGerada = Number(rows[0]?.total_receita) || 0;
+      vendasNoMes   = Number(rows[0]?.vendas_no_mes) || 0;
+      receitaNoMes  = Number(rows[0]?.receita_no_mes) || 0;
     }
 
     res.json({
       success: true,
-      data: { totalDisparos, totalGasto, vendasGeradas, receitaGerada, startDate: start, endDate: end },
+      data: { totalDisparos, totalGasto, vendasGeradas, receitaGerada, vendasNoMes, receitaNoMes, startDate: start, endDate: end },
     });
   } catch (err) {
     console.error('[Campaign] Erro no relatório:', err.message);

@@ -125,7 +125,7 @@ const listCampaigns = async (req, res) => {
 const createCampaign = async (req, res) => {
   try {
     const { wabaAccountId } = req.params;
-    const { name, message, segmentFilter, templateId, templateParams, sourceFilter } = req.body;
+    const { name, message, segmentFilter, templateId, templateParams, sourceFilter, recipientLimit } = req.body;
     const source = sourceFilter || segmentFilter?.sourceFilter || null;
 
     let template = null;
@@ -151,7 +151,8 @@ const createCampaign = async (req, res) => {
 
     // Conta quantos clientes serão impactados
     const where = buildFilter(wabaAccountId, { ...(segmentFilter || {}), sourceFilter: source });
-    const totalRecipients = await prisma.crmCustomer.count({ where });
+    const totalRecipientsRaw = await prisma.crmCustomer.count({ where });
+    const effectiveTotal = recipientLimit ? Math.min(totalRecipientsRaw, parseInt(recipientLimit)) : totalRecipientsRaw;
 
     const campaign = await prisma.campaign.create({
       data: {
@@ -163,7 +164,8 @@ const createCampaign = async (req, res) => {
         templateParams: params,
         segmentFilter: segmentFilter || {},
         sourceFilter: Array.isArray(source) ? JSON.stringify(source) : source,
-        totalRecipients,
+        recipientLimit: recipientLimit ? parseInt(recipientLimit) : null,
+        totalRecipients: effectiveTotal,
       },
     });
 
@@ -256,10 +258,11 @@ const executeCampaign = async (req, res) => {
     // Busca clientes do segmento (a origem gravada na campanha entra no filtro)
     const where = buildFilter(wabaAccountId, { ...(campaign.segmentFilter || {}), sourceFilter: campaign.sourceFilter || campaign.segmentFilter?.sourceFilter || null });
     const allCustomers = await prisma.crmCustomer.findMany({ where });
+    const customers = campaign.recipientLimit ? allCustomers.slice(0, campaign.recipientLimit) : allCustomers;
 
     // Custo estimado a partir do preço por conversa do template
     const unitCost = template.costPerConversation || 0;
-    const estimatedCost = unitCost ? Number((allCustomers.length * unitCost).toFixed(2)) : null;
+    const estimatedCost = unitCost ? Number((customers.length * unitCost).toFixed(2)) : null;
 
     // Link rastreado só é possível com uma base pública configurada
     const usesTracking = (campaign.templateParams || []).includes('link_rastreado');
@@ -284,7 +287,7 @@ const executeCampaign = async (req, res) => {
       select: { crmCustomerId: true },
     });
     const executedSet = new Set(executedIds.map(e => e.crmCustomerId));
-    const pending = allCustomers.filter(c => !executedSet.has(c.id));
+    const pending = customers.filter(c => !executedSet.has(c.id));
     const batch   = pending.slice(0, BATCH_SIZE);
 
     // Contadores acumulados do que já foi processado
@@ -300,7 +303,7 @@ const executeCampaign = async (req, res) => {
       data: {
         status: 'RUNNING',
         startedAt: campaign.startedAt || new Date(),
-        totalRecipients: allCustomers.length,
+        totalRecipients: customers.length,
         estimatedCost,
         ...(isFirstBatch ? { sentCount: 0, failedCount: 0, readCount: 0, clickCount: 0, totalCost: null } : {}),
       },
@@ -372,7 +375,7 @@ const executeCampaign = async (req, res) => {
       message: done
         ? `Disparo concluído! ${sent} enviadas, ${failed} falhas.`
         : `Lote processado: ${sent} enviadas até agora. Ainda ${remaining} restantes.`,
-      data: { total: allCustomers.length, sent, failed, remaining },
+      data: { total: customers.length, sent, failed, remaining },
     });
 
   } catch (err) {

@@ -519,6 +519,99 @@ const getCampaignReport = async (req, res) => {
   }
 };
 
+// Campanhas consideradas pelos relatórios agregados — mesmo filtro do relatório geral
+const findReportCampaignIds = async (wabaAccountId, startDate, endDate) => {
+  const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 86400000);
+  const end   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+  const campaigns = await prisma.campaign.findMany({
+    where: {
+      wabaAccountId,
+      status: { in: ['COMPLETED', 'RUNNING'] },
+      OR: [
+        { startedAt: { gte: start, lte: end } },
+        { startedAt: null, createdAt: { gte: start, lte: end } },
+      ],
+    },
+    select: { id: true },
+  });
+  return campaigns.map(c => c.id);
+};
+
+// ─── Velocidade de conversão ──────────────────────────────────────────────────
+// Distribui as vendas atribuídas (janela de 30 dias) por tempo entre envio e pedido.
+const getCampaignSpeedReport = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    const { startDate, endDate } = req.query;
+    const campaignIds = await findReportCampaignIds(wabaAccountId, startDate, endDate);
+
+    let rapidas = 0, medias = 0, lentas = 0;
+    if (campaignIds.length > 0) {
+      const idList = campaignIds.map(id => `'${id}'`).join(',');
+      const rows = await prisma.$queryRawUnsafe(`
+        SELECT
+          COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" < ce."sentAt" + INTERVAL '72 hours')::int AS rapidas,
+          COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '72 hours' AND co."orderedAt" < ce."sentAt" + INTERVAL '360 hours')::int AS medias,
+          COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '360 hours')::int AS lentas
+        FROM zapcloud.campaign_executions ce
+        JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+        WHERE ce."campaignId" IN (${idList})
+          AND ce.status = 'SENT'
+          AND ce."sentAt" IS NOT NULL
+          AND co."orderedAt" > ce."sentAt"
+          AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+      `);
+      rapidas = Number(rows[0]?.rapidas) || 0;
+      medias  = Number(rows[0]?.medias)  || 0;
+      lentas  = Number(rows[0]?.lentas)  || 0;
+    }
+
+    res.json({ success: true, data: { rapidas, medias, lentas } });
+  } catch (err) {
+    console.error('[Campaign] Erro no relatório de velocidade:', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao gerar relatório de velocidade.' });
+  }
+};
+
+// ─── Recorrência pós-campanha ─────────────────────────────────────────────────
+// Clientes que compraram na janela de 30 dias E voltaram a comprar depois dela.
+const getCampaignRecurrenceReport = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    const { startDate, endDate } = req.query;
+    const campaignIds = await findReportCampaignIds(wabaAccountId, startDate, endDate);
+
+    let voltaram = 0;
+    if (campaignIds.length > 0) {
+      const idList = campaignIds.map(id => `'${id}'`).join(',');
+      const rows = await prisma.$queryRawUnsafe(`
+        SELECT COUNT(DISTINCT ce."crmCustomerId")::int AS voltaram
+        FROM zapcloud.campaign_executions ce
+        WHERE ce."campaignId" IN (${idList})
+          AND ce.status = 'SENT'
+          AND ce."sentAt" IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM zapcloud.customer_orders co
+            WHERE co."crmCustomerId" = ce."crmCustomerId"
+              AND co."orderedAt" > ce."sentAt"
+              AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+          )
+          AND EXISTS (
+            SELECT 1 FROM zapcloud.customer_orders co2
+            WHERE co2."crmCustomerId" = ce."crmCustomerId"
+              AND co2."orderedAt" >= ce."sentAt" + INTERVAL '720 hours'
+          )
+      `);
+      voltaram = Number(rows[0]?.voltaram) || 0;
+    }
+
+    res.json({ success: true, data: { voltaram } });
+  } catch (err) {
+    console.error('[Campaign] Erro no relatório de recorrência:', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao gerar relatório de recorrência.' });
+  }
+};
+
 // ─── Conversões da campanha ────────────────────────────────────────────────────
 // Cruza execuções enviadas com pedidos realizados após o envio dentro de uma janela.
 const getCampaignConversions = async (req, res) => {
@@ -700,4 +793,4 @@ const getCampaignConverters = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, forceCompleteCampaign, getCampaignConverters };
+module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, forceCompleteCampaign, getCampaignConverters };

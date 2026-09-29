@@ -2504,17 +2504,26 @@ function CampaignRelatorio({token,wabaId}){
   const [startDate,setStartDate]=useState(firstDay);
   const [endDate,setEndDate]=useState(todayStr);
   const [data,setData]=useState(null);
+  const [speed,setSpeed]=useState(null);
+  const [recurrence,setRecurrence]=useState(null);
   const [loading,setLoading]=useState(false);
 
   const load=async()=>{
     if(!token||!wabaId)return;
     setLoading(true);
+    const H={headers:{Authorization:`Bearer ${token}`}};
+    const Q=`startDate=${startDate}&endDate=${endDate}`;
     try{
-      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns-report?startDate=${startDate}&endDate=${endDate}`,
-        {headers:{Authorization:`Bearer ${token}`}});
-      const d=await r.json();
+      const [r,rs,rr]=await Promise.all([
+        fetch(`${API}/api/crm/${wabaId}/campaigns-report?${Q}`,H),
+        fetch(`${API}/api/crm/${wabaId}/campaigns-report/speed?${Q}`,H),
+        fetch(`${API}/api/crm/${wabaId}/campaigns-report/recurrence?${Q}`,H),
+      ]);
+      const [d,ds,dr]=await Promise.all([r.json(),rs.json(),rr.json()]);
       if(d.success) setData(d.data);
       else console.error('[Relatório] erro API:', d.message);
+      if(ds.success) setSpeed(ds.data);
+      if(dr.success) setRecurrence(dr.data);
     }catch(e){console.error('[Relatório] fetch error:',e);}
     setLoading(false);
   };
@@ -2565,6 +2574,46 @@ function CampaignRelatorio({token,wabaId}){
           </div>
         </div>
       ))}
+    </div>
+
+    {/* Velocidade de conversão + fidelização */}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:16,marginTop:16}}>
+      <div style={{background:'#fff',borderRadius:16,padding:24,border:`1px solid ${C.br}`}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.tx,marginBottom:16}}>⚡ Velocidade de Conversão</p>
+        {(()=>{
+          const s=speed||{rapidas:0,medias:0,lentas:0};
+          const total=s.rapidas+s.medias+s.lentas;
+          const rows=[
+            {label:'Até 3 dias',   value:s.rapidas, color:'#2F855A'},
+            {label:'4 a 15 dias',  value:s.medias,  color:'#D69E2E'},
+            {label:'16 a 30 dias', value:s.lentas,  color:'#DD6B20'},
+          ];
+          return rows.map(rw=>{
+            const pct=total>0?Math.round(rw.value/total*100):0;
+            return <div key={rw.label} style={{marginBottom:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
+                <span style={{color:C.mt}}>{rw.label}</span>
+                <span style={{fontWeight:700,color:rw.color}}>{speed==null&&loading?'...':`${rw.value} ${rw.value===1?'venda':'vendas'} · ${pct}%`}</span>
+              </div>
+              <div style={{height:8,borderRadius:6,background:C.bg,overflow:'hidden'}}>
+                <div style={{width:`${pct}%`,height:'100%',borderRadius:6,background:rw.color,transition:'width .4s'}}/>
+              </div>
+            </div>;
+          });
+        })()}
+        <p style={{fontSize:11,color:C.mt,marginTop:4}}>Tempo entre o disparo e o pedido do cliente.</p>
+      </div>
+      <div style={{background:'#fff',borderRadius:16,padding:24,border:`1px solid ${C.br}`,display:'flex',flexDirection:'column',justifyContent:'center'}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.tx,marginBottom:12}}>🔄 Clientes Fidelizados</p>
+        <p style={{fontSize:34,fontWeight:800,color:'#276749',lineHeight:1,marginBottom:8}}>
+          {recurrence==null?(loading?'...':'—'):recurrence.voltaram}
+        </p>
+        <p style={{fontSize:12,color:C.mt}}>
+          {recurrence!=null&&data?.vendasGeradas>0
+            ?`${Math.round(recurrence.voltaram/data.vendasGeradas*100)}% das vendas geradas — clientes que voltaram a comprar após os 30 dias da campanha.`
+            :'Clientes que voltaram a comprar após os 30 dias da campanha.'}
+        </p>
+      </div>
     </div>
 
     {data&&<p style={{fontSize:11,color:C.mt,marginTop:16,textAlign:'center'}}>

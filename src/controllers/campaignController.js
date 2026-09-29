@@ -548,18 +548,30 @@ const getCampaignSpeedReport = async (req, res) => {
     let rapidas = 0, medias = 0, lentas = 0;
     if (campaignIds.length > 0) {
       const idList = campaignIds.map(id => `'${id}'`).join(',');
+      // Agrupa por campanha antes de somar, como no relatório geral: um pedido
+      // atribuído a mais de uma campanha conta em todas, e a soma dos buckets
+      // bate com o total de vendas do relatório
       const rows = await prisma.$queryRawUnsafe(`
         SELECT
-          COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" < ce."sentAt" + INTERVAL '72 hours')::int AS rapidas,
-          COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '72 hours' AND co."orderedAt" < ce."sentAt" + INTERVAL '360 hours')::int AS medias,
-          COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '360 hours')::int AS lentas
-        FROM zapcloud.campaign_executions ce
-        JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
-        WHERE ce."campaignId" IN (${idList})
-          AND ce.status = 'SENT'
-          AND ce."sentAt" IS NOT NULL
-          AND co."orderedAt" > ce."sentAt"
-          AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+          COALESCE(SUM(rapidas), 0)::int AS rapidas,
+          COALESCE(SUM(medias),  0)::int AS medias,
+          COALESCE(SUM(lentas),  0)::int AS lentas
+        FROM (
+          SELECT
+            ce."campaignId",
+            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" < ce."sentAt" + INTERVAL '72 hours')  AS rapidas,
+            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '72 hours'
+                                            AND co."orderedAt" < ce."sentAt" + INTERVAL '360 hours') AS medias,
+            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '360 hours') AS lentas
+          FROM zapcloud.campaign_executions ce
+          JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+          WHERE ce."campaignId" IN (${idList})
+            AND ce.status = 'SENT'
+            AND ce."sentAt" IS NOT NULL
+            AND co."orderedAt" > ce."sentAt"
+            AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+          GROUP BY ce."campaignId"
+        ) campaign_buckets
       `);
       rapidas = Number(rows[0]?.rapidas) || 0;
       medias  = Number(rows[0]?.medias)  || 0;

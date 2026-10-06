@@ -620,7 +620,13 @@ const getCampaignRecurrenceReport = async (req, res) => {
           AND EXISTS (
             SELECT 1 FROM zapcloud.customer_orders co2
             WHERE co2."crmCustomerId" = ce."crmCustomerId"
-              AND co2."orderedAt" >= ce."sentAt" + INTERVAL '720 hours'
+              AND co2."orderedAt" > (
+                SELECT MIN(co3."orderedAt")
+                FROM zapcloud.customer_orders co3
+                WHERE co3."crmCustomerId" = ce."crmCustomerId"
+                  AND co3."orderedAt" > ce."sentAt"
+                  AND co3."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+              )
           )
       `);
       voltaram = Number(rows[0]?.voltaram) || 0;

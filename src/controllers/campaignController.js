@@ -26,7 +26,33 @@ function normalizePhone(phone) {
  */
 function buildMetaPayload({ to, template, templateParams, customer, ctx, fallbackText }) {
   if (template) {
+    const defs = Array.isArray(template.components) ? template.components : [];
+    const components = [];
+
+    // Header de imagem: a Meta exige o parâmetro em TODO envio — o handle usado
+    // na criação é só o exemplo da aprovação; aqui vai a URL pública persistida.
+    const headerDef = defs.find((c) => String(c.type).toUpperCase() === 'HEADER');
+    if (headerDef && String(headerDef.format).toUpperCase() === 'IMAGE' && template.headerImageUrl) {
+      components.push({ type: 'header', parameters: [{ type: 'image', image: { link: template.headerImageUrl } }] });
+    }
+
     const parameters = buildBodyParameters(templateParams, customer || {}, ctx);
+    if (parameters.length) components.push({ type: 'body', parameters });
+
+    // Botão URL dinâmico ({{1}} no fim da URL) recebe o sufixo por envio —
+    // o id da execução, permitindo rastrear clique do botão via /api/campaigns/r/:id
+    const buttons = defs.find((c) => String(c.type).toUpperCase() === 'BUTTONS')?.buttons || [];
+    buttons.forEach((btn, index) => {
+      if (String(btn.type).toUpperCase() === 'URL' && /\{\{\s*1\s*\}\}/.test(btn.url || '')) {
+        components.push({
+          type: 'button',
+          sub_type: 'url',
+          index: String(index),
+          parameters: [{ type: 'text', text: ctx?.buttonParam || 'promo' }],
+        });
+      }
+    });
+
     return {
       messaging_product: 'whatsapp',
       to,
@@ -34,11 +60,20 @@ function buildMetaPayload({ to, template, templateParams, customer, ctx, fallbac
       template: {
         name: template.name,
         language: { code: template.language },
-        components: parameters.length ? [{ type: 'body', parameters }] : [],
+        components,
       },
     };
   }
   return { messaging_product: 'whatsapp', to, type: 'text', text: { body: fallbackText } };
+}
+
+/** Template exige imagem de header no envio mas não tem URL configurada? */
+function missingHeaderImage(template) {
+  const defs = Array.isArray(template?.components) ? template.components : [];
+  const hasImageHeader = defs.some(
+    (c) => String(c.type).toUpperCase() === 'HEADER' && String(c.format).toUpperCase() === 'IMAGE'
+  );
+  return hasImageHeader && !template.headerImageUrl;
 }
 
 function metaError(error) {
@@ -254,6 +289,12 @@ const executeCampaign = async (req, res) => {
         message: `O template "${template.name}" está com status ${template.status}. Só é possível disparar com template APPROVED.`,
       });
     }
+    if (missingHeaderImage(template)) {
+      return res.status(400).json({
+        success: false,
+        message: `O template "${template.name}" tem header de imagem, mas nenhuma imagem está configurada. Edite o template e envie a imagem novamente.`,
+      });
+    }
 
     // Busca clientes do segmento (a origem gravada na campanha entra no filtro)
     const where = buildFilter(wabaAccountId, { ...(campaign.segmentFilter || {}), sourceFilter: campaign.sourceFilter || campaign.segmentFilter?.sourceFilter || null });
@@ -324,7 +365,7 @@ const executeCampaign = async (req, res) => {
           throw dupErr;
         }
 
-        const ctx = { trackingUrl: trackingUrlFor(execution.id) };
+        const ctx = { trackingUrl: trackingUrlFor(execution.id), buttonParam: execution.id };
         const finalMessage = renderTemplateBody(template.bodyText, params, customer, ctx);
         const phone = normalizePhone(customer.phone);
 
@@ -711,6 +752,12 @@ const testSend = async (req, res) => {
           message: `Template com status ${template.status}. Aguarde a aprovação da Meta para testar.`,
         });
       }
+      if (missingHeaderImage(template)) {
+        return res.status(400).json({
+          success: false,
+          message: 'O template tem header de imagem, mas nenhuma imagem está configurada. Edite o template e envie a imagem novamente.',
+        });
+      }
     }
 
     // Busca dados do cliente pelo telefone para substituir variáveis
@@ -728,7 +775,8 @@ const testSend = async (req, res) => {
     const params = Array.isArray(templateParams) ? templateParams : [];
     // Para test send usamos a linkUrl do template (URL real do negócio) como
     // trackingUrl — evita enviar domínio desconhecido (Railway) que a Meta bloqueia.
-    const testCtx = template?.linkUrl ? { trackingUrl: template.linkUrl } : undefined;
+    // buttonParam "teste" preenche o {{1}} de botão dinâmico sem gerar execução.
+    const testCtx = template ? { trackingUrl: template.linkUrl || '', buttonParam: 'teste' } : undefined;
     const finalMessage = template
       ? renderTemplateBody(template.bodyText, params, customer, testCtx)
       : buildMessage(message, customer);

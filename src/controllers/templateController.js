@@ -1,7 +1,10 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 const prisma = require('../utils/prisma');
-const { extractVariables } = require('../utils/templateVars');
+const { extractVariables, publicBaseUrl } = require('../utils/templateVars');
 
 const META_BASE_URL = process.env.META_BASE_URL || 'https://graph.facebook.com';
 const META_API_VERSION = process.env.META_API_VERSION || 'v19.0';
@@ -57,6 +60,102 @@ function parseDestination(raw) {
     return { ok: false, message: 'URL de destino inválida. Use http:// ou https://.' };
   }
 }
+
+const BUTTON_VAR = /\{\{\s*1\s*\}\}/;
+
+/**
+ * Valida texto + URL do botão CTA e monta o objeto no formato da Meta.
+ * URL pode ser fixa ou dinâmica com {{1}} (obrigatoriamente no final —
+ * a Meta só aceita a variável como sufixo da URL base).
+ */
+function parseButton(buttonText, buttonUrl) {
+  const text = String(buttonText || '').trim();
+  const url = String(buttonUrl || '').trim();
+  if (!text && !url) return { ok: true, value: null };
+  if (!text) return { ok: false, message: 'Informe o texto do botão (ex: Pedir agora).' };
+  if (text.length > 25) return { ok: false, message: 'O texto do botão tem no máximo 25 caracteres.' };
+  if (!url) return { ok: false, message: 'Informe a URL do botão.' };
+
+  const dynamic = BUTTON_VAR.test(url);
+  if (dynamic && !/\{\{\s*1\s*\}\}$/.test(url)) {
+    return { ok: false, message: 'A variável {{1}} do botão deve ficar no final da URL (ex: https://site.com/{{1}}).' };
+  }
+  if ((url.match(/\{\{/g) || []).length > 1) {
+    return { ok: false, message: 'A URL do botão aceita apenas uma variável: {{1}}.' };
+  }
+  try {
+    const probe = new URL(url.replace(BUTTON_VAR, 'exemplo'));
+    if (!['http:', 'https:'].includes(probe.protocol)) throw new Error('protocolo');
+  } catch {
+    return { ok: false, message: 'URL do botão inválida. Use http:// ou https://.' };
+  }
+
+  const button = { type: 'URL', text, url };
+  if (dynamic) button.example = [url.replace(BUTTON_VAR, 'exemplo')];
+  return { ok: true, value: button };
+}
+
+// ─── Upload de imagem de header para a Meta (Resumable Upload API) ──────────
+// Gera o `handle` exigido no example.header_handle da criação do template e
+// salva uma cópia pública local — a Meta exige a imagem de novo em cada envio.
+const HEADER_UPLOAD_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'template-headers');
+
+const uploadTemplateHeader = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+
+    const wabaAccount = await getOwnedWabaAccount(wabaAccountId, req.user);
+    if (!wabaAccount) {
+      return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Envie a imagem no campo "file" (JPEG ou PNG, até 5MB).' });
+    }
+    const appId = process.env.META_APP_ID;
+    if (!appId) {
+      return res.status(500).json({ success: false, message: 'META_APP_ID não configurado no servidor.' });
+    }
+
+    // 1) Abre a sessão de upload no app
+    const session = await axios.post(
+      `${META_BASE_URL}/${META_API_VERSION}/${appId}/uploads`,
+      null,
+      { params: { file_length: req.file.size, file_type: req.file.mimetype, access_token: wabaAccount.accessToken } }
+    );
+    const sessionId = session.data?.id; // formato "upload:XXXX"
+    if (!sessionId) throw new Error('A Meta não retornou a sessão de upload.');
+
+    // 2) Envia o binário — note o esquema "OAuth" (não "Bearer") exigido por esta API
+    const uploaded = await axios.post(
+      `${META_BASE_URL}/${META_API_VERSION}/${sessionId}`,
+      req.file.buffer,
+      {
+        headers: {
+          Authorization: `OAuth ${wabaAccount.accessToken}`,
+          file_offset: 0,
+          'Content-Type': 'application/octet-stream',
+        },
+        maxBodyLength: Infinity,
+      }
+    );
+    const handle = uploaded.data?.h;
+    if (!handle) throw new Error('A Meta não retornou o handle da imagem.');
+
+    // 3) Guarda cópia pública para usar como link de header em cada disparo
+    fs.mkdirSync(HEADER_UPLOAD_DIR, { recursive: true });
+    const ext = req.file.mimetype === 'image/png' ? '.png' : '.jpg';
+    const filename = `${crypto.randomUUID()}${ext}`;
+    fs.writeFileSync(path.join(HEADER_UPLOAD_DIR, filename), req.file.buffer);
+    const base = publicBaseUrl() || `${req.protocol}://${req.get('host')}`;
+    const url = `${base}/uploads/template-headers/${filename}`;
+
+    console.log('[Template] Imagem de header enviada à Meta:', filename);
+    res.json({ success: true, data: { handle, url } });
+  } catch (err) {
+    console.error('[Template] uploadTemplateHeader:', err?.response?.data || err.message);
+    res.status(400).json({ success: false, message: metaError(err) });
+  }
+};
 
 // ─── Listar templates (banco + sincroniza status na Meta) ────────────────────
 const listTemplates = async (req, res) => {
@@ -115,6 +214,7 @@ const createTemplate = async (req, res) => {
     const {
       name, category = 'MARKETING', language = 'pt_BR',
       bodyText, footerText, examples, costPerConversation, linkUrl,
+      headerHandle, headerImageUrl, buttonText, buttonUrl,
     } = req.body;
 
     if (!name || !bodyText) {
@@ -164,6 +264,20 @@ const createTemplate = async (req, res) => {
     if (!parsedLink.ok) return res.status(400).json({ success: false, message: parsedLink.message });
     const destination = parsedLink.value;
 
+    // Header de imagem: handle (exemplo p/ aprovação) + URL pública (usada em cada envio)
+    const parsedHeaderUrl = parseDestination(headerImageUrl);
+    if (!parsedHeaderUrl.ok) {
+      return res.status(400).json({ success: false, message: 'URL da imagem de header inválida.' });
+    }
+    const headerImage = parsedHeaderUrl.value;
+    if (headerHandle && !headerImage) {
+      return res.status(400).json({ success: false, message: 'Imagem de header sem URL pública. Refaça o upload da imagem.' });
+    }
+
+    const parsedButton = parseButton(buttonText, buttonUrl);
+    if (!parsedButton.ok) return res.status(400).json({ success: false, message: parsedButton.message });
+    const button = parsedButton.value;
+
     const wabaAccount = await getOwnedWabaAccount(wabaAccountId, req.user);
     if (!wabaAccount) {
       return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
@@ -185,8 +299,14 @@ const createTemplate = async (req, res) => {
       bodyComponent.example = { body_text: [sample] };
     }
 
-    const components = [bodyComponent];
+    // Ordem convencional da Meta: HEADER, BODY, FOOTER, BUTTONS
+    const components = [];
+    if (headerHandle) {
+      components.push({ type: 'HEADER', format: 'IMAGE', example: { header_handle: [String(headerHandle)] } });
+    }
+    components.push(bodyComponent);
     if (footerText) components.push({ type: 'FOOTER', text: String(footerText).trim().slice(0, 60) });
+    if (button) components.push({ type: 'BUTTONS', buttons: [button] });
 
     let metaResponse;
     try {
@@ -213,6 +333,7 @@ const createTemplate = async (req, res) => {
         variableCount: count,
         costPerConversation: cost,
         linkUrl: destination,
+        headerImageUrl: headerHandle ? headerImage : null,
       },
     });
 
@@ -230,7 +351,7 @@ const createTemplate = async (req, res) => {
 const updateTemplate = async (req, res) => {
   try {
     const { wabaAccountId, id } = req.params;
-    const { costPerConversation, linkUrl } = req.body;
+    const { costPerConversation, linkUrl, headerImageUrl } = req.body;
 
     const wabaAccount = await getOwnedWabaAccount(wabaAccountId, req.user);
     if (!wabaAccount) {
@@ -257,8 +378,21 @@ const updateTemplate = async (req, res) => {
       data.linkUrl = parsed.value;
     }
 
+    // A imagem enviada em cada disparo pode ser trocada sem nova aprovação —
+    // o que a Meta congela é a estrutura do template, não a mídia do envio.
+    if (headerImageUrl !== undefined) {
+      const hasImageHeader = (Array.isArray(template.components) ? template.components : [])
+        .some((c) => String(c.type).toUpperCase() === 'HEADER' && String(c.format).toUpperCase() === 'IMAGE');
+      if (!hasImageHeader) {
+        return res.status(400).json({ success: false, message: 'Este template não tem header de imagem.' });
+      }
+      const parsed = parseDestination(headerImageUrl);
+      if (!parsed.ok) return res.status(400).json({ success: false, message: 'URL da imagem de header inválida.' });
+      data.headerImageUrl = parsed.value;
+    }
+
     if (Object.keys(data).length === 0) {
-      return res.status(400).json({ success: false, message: 'Nada para atualizar. Envie costPerConversation e/ou linkUrl.' });
+      return res.status(400).json({ success: false, message: 'Nada para atualizar. Envie costPerConversation, linkUrl e/ou headerImageUrl.' });
     }
 
     const updated = await prisma.template.update({ where: { id }, data });
@@ -319,4 +453,4 @@ const deleteTemplate = async (req, res) => {
   }
 };
 
-module.exports = { listTemplates, createTemplate, updateTemplate, deleteTemplate };
+module.exports = { listTemplates, createTemplate, updateTemplate, deleteTemplate, uploadTemplateHeader };

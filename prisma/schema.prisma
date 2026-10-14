@@ -155,6 +155,7 @@ model Template {
   rejectedReason  String?        // motivo devolvido pela Meta quando REJECTED
   costPerConversation Float?     // custo cobrado pela Meta por conversa iniciada (ex: 0.33)
   linkUrl         String?        // destino final do link rastreado (token link_rastreado)
+  headerImageUrl  String?        // URL publica da imagem do header IMAGE (a Meta exige o parametro de header em todo envio)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 

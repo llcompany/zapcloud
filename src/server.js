@@ -62,7 +62,7 @@ app.get('/', (req, res) => {
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net https://connect.facebook.net; " +
     "style-src 'self' 'unsafe-inline'; " +
     "connect-src *; " +
-    "img-src 'self' data: https://*.facebook.com https://*.fbcdn.net; " +
+    "img-src 'self' data: https:; " +
     "frame-src https://www.facebook.com https://web.facebook.com; " +
     "font-src 'self' data:;"
   );

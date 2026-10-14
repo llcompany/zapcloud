@@ -1,6 +1,29 @@
 const express = require('express');
 const { body, param } = require('express-validator');
+const multer = require('multer');
 const router = express.Router();
+
+// Upload em memória: o buffer vai direto para a Resumable Upload API da Meta.
+// A Meta só aceita JPEG/PNG como header de imagem (limite oficial: 5MB).
+const headerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (['image/jpeg', 'image/png'].includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Formato inválido. A Meta aceita apenas JPEG ou PNG no header.'));
+  },
+});
+
+// Converte erros do multer (tipo/tamanho) em resposta JSON padrão da API
+const headerUploadMiddleware = (req, res, next) => {
+  headerUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE' ? 'A imagem deve ter no máximo 5MB.' : err.message;
+      return res.status(400).json({ success: false, message });
+    }
+    next();
+  });
+};
 
 const {
   getAuthUrl,
@@ -15,6 +38,7 @@ const {
   createTemplate,
   updateTemplate,
   deleteTemplate,
+  uploadTemplateHeader,
 } = require('../controllers/templateController');
 const { authenticate } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
@@ -47,6 +71,16 @@ router.patch('/accounts/:wabaAccountId/token', updateWabaToken);
 
 // GET /api/meta/:wabaAccountId/templates — lista do banco + sincroniza status na Meta
 router.get('/:wabaAccountId/templates', [param('wabaAccountId').isUUID()], validate, listTemplates);
+
+// POST /api/meta/:wabaAccountId/templates/header-upload — sobe a imagem do header
+// para a Meta (gera o handle usado na criação) e devolve também a URL pública
+router.post(
+  '/:wabaAccountId/templates/header-upload',
+  [param('wabaAccountId').isUUID()],
+  validate,
+  headerUploadMiddleware,
+  uploadTemplateHeader
+);
 
 // POST /api/meta/:wabaAccountId/templates — cria na Meta e salva no banco
 router.post(

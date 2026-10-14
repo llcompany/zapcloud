@@ -1583,9 +1583,24 @@ function TplBadge({status}){
   return <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,background:bg,color:col}}>{label}</span>;
 }
 
-function TemplateEditModal({template,onClose,onSave,saving,error}){
+function TemplateEditModal({template,onClose,onSave,saving,error,onUploadImage}){
   const [cost,setCost]=useState(template.costPerConversation!=null?String(template.costPerConversation):'');
   const [link,setLink]=useState(template.linkUrl||'');
+  const hasImageHeader=(template.components||[]).some(c=>c.type==='HEADER'&&c.format==='IMAGE');
+  const [headerImg,setHeaderImg]=useState(template.headerImageUrl||'');
+  const [uploadingImg,setUploadingImg]=useState(false);
+
+  const onFile=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value='';
+    if(!file||!onUploadImage)return;
+    setUploadingImg(true);
+    try{
+      const data=await onUploadImage(file);
+      if(data) setHeaderImg(data.url);
+    }catch(err){alert('❌ '+err.message);}
+    setUploadingImg(false);
+  };
 
   useEffect(()=>{
     const h=e=>{if(e.key==='Escape')onClose();};
@@ -1619,11 +1634,24 @@ function TemplateEditModal({template,onClose,onSave,saving,error}){
       <input type="url" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://seurestaurante.com/promo" style={inp2}/>
       <p style={{fontSize:11,color:C.mt,marginTop:6}}>Deixe em branco para remover o valor.</p>
 
+      {hasImageHeader&&<div style={{marginTop:14}}>
+        <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:6}}>Imagem do header (usada em cada envio)</label>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          {headerImg?<img src={headerImg} alt="Header" style={{width:88,height:50,objectFit:'cover',borderRadius:9,border:`1px solid ${C.br}`}}/>:
+            <div style={{width:88,height:50,borderRadius:9,border:`1.5px dashed ${C.br}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'#FF5252',fontWeight:600}}>sem imagem</div>}
+          <label style={{padding:'8px 14px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',fontSize:12,fontWeight:600,color:C.tx,cursor:uploadingImg?'wait':'pointer'}}>
+            {uploadingImg?'Enviando...':'Trocar imagem'}
+            <input type="file" accept="image/jpeg,image/png" onChange={onFile} disabled={uploadingImg} style={{display:'none'}}/>
+          </label>
+        </div>
+        <p style={{fontSize:11,color:C.mt,marginTop:6}}>A estrutura aprovada pela Meta não muda — apenas a imagem enviada nos próximos disparos.</p>
+      </div>}
+
       {error&&<div style={{marginTop:12,padding:'9px 12px',borderRadius:9,background:'#FF525218',color:'#FF5252',fontSize:12,fontWeight:500}}>{error}</div>}
 
       <div style={{display:'flex',gap:9,marginTop:18}}>
         <button onClick={onClose} style={{flex:1,padding:'11px',borderRadius:12,border:`1px solid ${C.br}`,background:'#fff',color:C.tx,fontWeight:600,fontSize:13}}>Cancelar</button>
-        <button onClick={()=>onSave({costPerConversation:cost,linkUrl:link})} disabled={saving}
+        <button onClick={()=>onSave({costPerConversation:cost,linkUrl:link,...(hasImageHeader?{headerImageUrl:headerImg}:{})})} disabled={saving||uploadingImg}
           style={{flex:1,padding:'11px',borderRadius:12,border:'none',background:C.p,color:'#fff',fontWeight:700,fontSize:13,opacity:saving?.6:1}}>
           {saving?'Salvando...':'Salvar'}
         </button>
@@ -1636,7 +1664,10 @@ function Templates({token,wabaId}){
   const [templates,setTemplates]=useState([]);
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState('list');
-  const [form,setForm]=useState({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:'',costPerConversation:'',linkUrl:''});
+  const EMPTY_FORM={name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:'',costPerConversation:'',linkUrl:'',headerHandle:'',headerImageUrl:'',buttonText:'',buttonUrl:''};
+  const [form,setForm]=useState(EMPTY_FORM);
+  const [ctaOn,setCtaOn]=useState(false);
+  const [uploadingHeader,setUploadingHeader]=useState(false);
   const [saving,setSaving]=useState(false);
   const [result,setResult]=useState(null);
   const [editing,setEditing]=useState(null);
@@ -1660,17 +1691,46 @@ function Templates({token,wabaId}){
     return new Set(nums).size;
   };
 
+  // Sobe a imagem p/ Meta (handle de aprovação) e recebe a URL pública usada nos envios.
+  // Lança Error com a mensagem — cada tela decide como exibir.
+  const uploadHeader=async(file)=>{
+    if(!file)return null;
+    if(!['image/jpeg','image/png'].includes(file.type))throw new Error('A Meta aceita apenas JPEG ou PNG no header.');
+    if(file.size>5*1024*1024)throw new Error('A imagem deve ter no máximo 5MB.');
+    const fd=new FormData();fd.append('file',file);
+    const r=await fetch(`${API}/api/meta/${wabaId}/templates/header-upload`,{method:'POST',
+      headers:{Authorization:`Bearer ${token}`},body:fd});
+    const d=await r.json();
+    if(!d.success)throw new Error(d.message||'Falha no upload da imagem.');
+    return d.data;
+  };
+
+  const onHeaderFile=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value='';
+    if(!file)return;
+    setUploadingHeader(true);setResult(null);
+    try{
+      const data=await uploadHeader(file);
+      if(data) setForm(p=>({...p,headerHandle:data.handle,headerImageUrl:data.url}));
+    }catch(err){setResult({ok:false,msg:'❌ '+err.message});}
+    setUploadingHeader(false);
+  };
+
   const submit=async()=>{
     if(!form.name.trim()||!form.bodyText.trim()){setResult({ok:false,msg:'Preencha o nome e o corpo da mensagem.'});return;}
+    if(ctaOn&&(!form.buttonText.trim()||!form.buttonUrl.trim())){setResult({ok:false,msg:'Preencha o texto e a URL do botão (ou desative o botão).'});return;}
     setSaving(true);setResult(null);
     try{
+      const payload={...form};
+      if(!ctaOn){payload.buttonText='';payload.buttonUrl='';}
       const r=await fetch(`${API}/api/meta/${wabaId}/templates`,{method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify(form)});
+        body:JSON.stringify(payload)});
       const d=await r.json();
       if(d.success){
         setResult({ok:true,msg:'✅ Template enviado para aprovação da Meta!'});
-        setForm({name:'',category:'MARKETING',language:'pt_BR',bodyText:'',footerText:'',costPerConversation:'',linkUrl:''});
+        setForm(EMPTY_FORM);setCtaOn(false);
         load();setTimeout(()=>setView('list'),1200);
       } else setResult({ok:false,msg:'❌ '+(d.message||'Erro ao criar template.')});
     }catch(e){setResult({ok:false,msg:'Erro: '+e.message});}
@@ -1735,6 +1795,24 @@ function Templates({token,wabaId}){
           </div>
         </div>
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <h3 style={{fontWeight:600,color:C.tx,marginBottom:8,fontSize:15}}>🖼 Header de imagem (opcional)</h3>
+          <p style={{fontSize:11,color:C.mt,marginBottom:10}}>A imagem aparece no topo da mensagem. JPEG ou PNG, até 5MB. Recomendado: 1125×600px.</p>
+          {form.headerImageUrl?
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <img src={form.headerImageUrl} alt="Header" style={{width:110,height:62,objectFit:'cover',borderRadius:10,border:`1px solid ${C.br}`}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <p style={{fontSize:12,color:C.tx,fontWeight:600}}>Imagem enviada ✓</p>
+                <p style={{fontSize:11,color:C.mt,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{form.headerImageUrl}</p>
+              </div>
+              <button onClick={()=>setForm(p=>({...p,headerHandle:'',headerImageUrl:''}))} style={{padding:'7px 12px',borderRadius:10,border:`1px solid ${C.br}`,background:'#fff',fontSize:12,fontWeight:600,color:'#FF5252',flexShrink:0}}>Remover</button>
+            </div>:
+            <label style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'16px',borderRadius:12,border:`1.5px dashed ${C.br}`,cursor:uploadingHeader?'wait':'pointer',background:C.bg,fontSize:13,color:C.mt,fontWeight:500}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.mt} strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              {uploadingHeader?'Enviando para a Meta...':'Clique para escolher a imagem'}
+              <input type="file" accept="image/jpeg,image/png" onChange={onHeaderFile} disabled={uploadingHeader} style={{display:'none'}}/>
+            </label>}
+        </div>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:8,fontSize:15}}>💬 Corpo da mensagem</h3>
           <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:8}}>
             {[1,2,3,4,5].map(n=><button key={n} onClick={()=>setForm(p=>({...p,bodyText:p.bodyText+'{{'+n+'}}'}))}
@@ -1748,6 +1826,34 @@ function Templates({token,wabaId}){
           </p>
           <label style={{fontSize:13,fontWeight:500,color:C.tx,display:'block',margin:'14px 0 5px'}}>Rodapé (opcional)</label>
           <input value={form.footerText} onChange={e=>setForm(p=>({...p,footerText:e.target.value}))} placeholder="Responda SAIR para não receber mais" style={inp2} maxLength={60}/>
+        </div>
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:ctaOn?14:0}}>
+            <div>
+              <h3 style={{fontWeight:600,color:C.tx,fontSize:15}}>🔘 Botão CTA (opcional)</h3>
+              <p style={{fontSize:11,color:C.mt,marginTop:2}}>Botão "Visitar site" abaixo da mensagem, ex: Pedir agora</p>
+            </div>
+            <button onClick={()=>setCtaOn(v=>!v)} title={ctaOn?'Desativar botão':'Ativar botão'}
+              style={{width:44,height:24,borderRadius:20,border:'none',background:ctaOn?C.p:'#ccd3d9',position:'relative',cursor:'pointer',flexShrink:0,transition:'background .15s'}}>
+              <span style={{position:'absolute',top:3,left:ctaOn?23:3,width:18,height:18,borderRadius:'50%',background:'#fff',transition:'left .15s',boxShadow:'0 1px 3px rgba(0,0,0,.25)'}}/>
+            </button>
+          </div>
+          {ctaOn&&<>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1.4fr',gap:12}}>
+              <div>
+                <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>Texto do botão</label>
+                <input value={form.buttonText} onChange={e=>setForm(p=>({...p,buttonText:e.target.value}))} placeholder="Pedir agora" style={inp2} maxLength={25}/>
+                <p style={{fontSize:11,color:C.mt,marginTop:4}}>{form.buttonText.length}/25</p>
+              </div>
+              <div>
+                <label style={{fontSize:12,color:C.mt,display:'block',marginBottom:4}}>URL do botão</label>
+                <input type="url" value={form.buttonUrl} onChange={e=>setForm(p=>({...p,buttonUrl:e.target.value}))} placeholder="https://seurestaurante.com/cardapio" style={inp2}/>
+              </div>
+            </div>
+            <p style={{fontSize:11,color:C.mt,marginTop:8,lineHeight:1.5}}>
+              URL fixa ou dinâmica: termine com <b>{'{{1}}'}</b> (ex: https://seusite.com/r/{'{{1}}'}) para a variável ser preenchida a cada envio — no disparo ela recebe o código de rastreamento do destinatário.
+            </p>
+          </>}
         </div>
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:14,fontSize:15}}>💰 Custo e link</h3>
@@ -1773,9 +1879,15 @@ function Templates({token,wabaId}){
         <div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>👁 Pré-visualização</h3>
           <div style={{background:C.bg,borderRadius:12,padding:12}}>
-            <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:'8px 12px',maxWidth:'90%',marginLeft:'auto'}}>
-              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{form.bodyText||'Sua mensagem aparece aqui…'}</p>
-              {form.footerText&&<p style={{fontSize:11,color:C.mt,marginTop:6}}>{form.footerText}</p>}
+            <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:form.headerImageUrl?'4px 4px 8px':'8px 12px',maxWidth:'90%',marginLeft:'auto',overflow:'hidden'}}>
+              {form.headerImageUrl&&<img src={form.headerImageUrl} alt="Header" style={{width:'100%',maxHeight:150,objectFit:'cover',borderRadius:9,display:'block',marginBottom:8}}/>}
+              <div style={form.headerImageUrl?{padding:'0 8px'}:undefined}>
+                <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{form.bodyText||'Sua mensagem aparece aqui…'}</p>
+                {form.footerText&&<p style={{fontSize:11,color:C.mt,marginTop:6}}>{form.footerText}</p>}
+              </div>
+              {ctaOn&&form.buttonText.trim()&&<div style={{borderTop:'1px solid rgba(0,0,0,.08)',marginTop:8,paddingTop:8,textAlign:'center'}}>
+                <span style={{fontSize:13,fontWeight:600,color:'#34B7F1'}}>🔗 {form.buttonText}</span>
+              </div>}
             </div>
           </div>
         </div>
@@ -1826,6 +1938,8 @@ function Templates({token,wabaId}){
              <span style={{fontSize:12,color:C.mt}}>{t.category}</span>
              <span style={{fontSize:12,color:C.mt}}>{t.language}</span>
              <span style={{fontSize:12,color:C.mt}}>🔢 {t.variableCount} variável(is)</span>
+             {(t.components||[]).some(c=>c.type==='HEADER'&&c.format==='IMAGE')&&<span style={{fontSize:12,color:C.mt}}>🖼 imagem</span>}
+             {(t.components||[]).some(c=>c.type==='BUTTONS')&&<span style={{fontSize:12,color:C.mt}}>🔘 botão</span>}
              {t.costPerConversation!=null&&<span style={{fontSize:12,color:C.dk,fontWeight:600}}>💰 R$ {Number(t.costPerConversation).toFixed(2)}/conversa</span>}
              {t.linkUrl&&<span style={{fontSize:12,color:C.mt}}>🔗 link</span>}
            </div>
@@ -1841,7 +1955,7 @@ function Templates({token,wabaId}){
          </div>
        </div>)}
      </div>}
-    {editing&&<TemplateEditModal template={editing} onClose={()=>setEditing(null)} onSave={saveEdit} saving={savingEdit} error={editError}/>}
+    {editing&&<TemplateEditModal template={editing} onClose={()=>setEditing(null)} onSave={saveEdit} saving={savingEdit} error={editError} onUploadImage={uploadHeader}/>}
   </div>;
 }
 

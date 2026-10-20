@@ -46,6 +46,7 @@ model WabaAccount {
   phoneNumber     String?
   displayName     String
   accessToken     String   // token de acesso permanente
+  autoReplyText   String?  // null = auto-reply desativado
   webhookVerified Boolean  @default(false)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())

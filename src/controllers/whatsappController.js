@@ -227,8 +227,6 @@ const webhookReceive = async (req, res) => {
 
 // ─── Auto-reply: redirecionar cliente para o WhatsApp de atendimento ─────────
 
-const AUTO_REPLY_TEXT =
-  'Para dar continuidade no atendimento, fale conosco pelo nosso WhatsApp: https://wa.me/5547991345493';
 const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
 
 // contactId → timestamp do último auto-reply enviado
@@ -236,6 +234,10 @@ const autoReplyCache = new Map();
 
 const sendAutoReply = async (wabaAccount, contact) => {
   try {
+    // Texto configurado por conta; null/vazio = auto-reply desativado
+    const autoReplyText = wabaAccount.autoReplyText?.trim();
+    if (!autoReplyText) return;
+
     const lastSent = autoReplyCache.get(contact.id);
     if (lastSent && Date.now() - lastSent < AUTO_REPLY_COOLDOWN_MS) return;
 
@@ -248,7 +250,7 @@ const sendAutoReply = async (wabaAccount, contact) => {
         recipient_type: 'individual',
         to: contact.phone,
         type: 'text',
-        text: { body: AUTO_REPLY_TEXT },
+        text: { body: autoReplyText },
       },
       {
         headers: {
@@ -269,7 +271,7 @@ const sendAutoReply = async (wabaAccount, contact) => {
         direction: 'OUTBOUND',
         type: 'TEXT',
         status: 'SENT',
-        content: { text: AUTO_REPLY_TEXT },
+        content: { text: autoReplyText },
         sentAt: new Date(),
       },
     });

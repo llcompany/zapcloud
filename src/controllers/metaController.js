@@ -235,66 +235,142 @@ const updateWabaToken = async (req, res) => {
 // redirect_uri DEVE ser 'https://www.facebook.com/connect/login_success.html'
 // quando o código vem do JS SDK (diferente do fluxo de redirect server-side).
 
+// Troca o code do Embedded Signup por access_token.
+// Códigos de Business Integration (config_id) trocam sem redirect_uri;
+// códigos do FB.login clássico exigem redirect_uri login_success.html — tenta os dois.
+const exchangeSignupCode = async (code) => {
+  const base = {
+    client_id: process.env.META_APP_ID,
+    client_secret: process.env.META_APP_SECRET,
+    code,
+  };
+  let tokenRes;
+  try {
+    tokenRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, { params: base });
+  } catch (e) {
+    tokenRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
+      params: { ...base, redirect_uri: 'https://www.facebook.com/connect/login_success.html' },
+    });
+  }
+  return tokenRes.data.access_token;
+};
+
+// Tenta estender para token de longa duração (60 dias); tokens de Business
+// Integration já nascem longos e a troca pode falhar — nesse caso mantém o original.
+const toLongLivedToken = async (token) => {
+  try {
+    const llRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
+      params: {
+        grant_type: 'fb_exchange_token',
+        client_id: process.env.META_APP_ID,
+        client_secret: process.env.META_APP_SECRET,
+        fb_exchange_token: token,
+      },
+    });
+    return llRes.data.access_token || token;
+  } catch (e) {
+    console.warn('[Embedded Signup] Troca por long-lived falhou, mantendo token original:', e.response?.data?.error?.message || e.message);
+    return token;
+  }
+};
+
+// Valida o token contra o número e retorna os dados do telefone (ou null)
+const fetchPhoneInfo = async (phoneNumberId, accessToken) => {
+  try {
+    const r = await axios.get(`${META_BASE_URL}/${META_API_VERSION}/${phoneNumberId}`, {
+      params: { fields: 'display_phone_number,verified_name', access_token: accessToken },
+    });
+    return r.data;
+  } catch (e) {
+    console.warn('[Embedded Signup] Token sem acesso ao número', phoneNumberId, ':', e.response?.data?.error?.message || e.message);
+    return null;
+  }
+};
+
+const subscribeAppToWaba = async (wabaId, accessToken) => {
+  try {
+    await axios.post(
+      `${META_BASE_URL}/${META_API_VERSION}/${wabaId}/subscribed_apps`,
+      null,
+      { params: { access_token: accessToken } }
+    );
+    console.log('[Embedded Signup] App inscrito no WABA:', wabaId);
+    return true;
+  } catch (e) {
+    console.warn('[Embedded Signup] Subscribe falhou:', e.response?.data || e.message);
+    return false;
+  }
+};
+
 const embeddedSignup = async (req, res) => {
   try {
     const { code, accessToken: rawToken, phoneNumberId, wabaId } = req.body;
 
-    // Novo caso: phone_number_id e waba_id vindos do sessionInfoVersion:2
+    // Caso sessionInfoVersion:2 — phone_number_id e waba_id vêm do frontend,
+    // idealmente acompanhados do `code` para gerar um token próprio da conta.
     if (phoneNumberId && wabaId) {
-      const accessToken = process.env.WHATSAPP_TOKEN;
-      if (!accessToken) return res.status(500).json({ success: false, message: 'WHATSAPP_TOKEN não configurado.' });
-      try {
-        const account = await prisma.wabaAccount.upsert({
-          where: { phoneNumberId },
-          update: { wabaId, accessToken, isActive: true },
-          create: {
-            userId: req.user.id,
-            wabaId,
-            phoneNumberId,
-            displayName: 'WhatsApp Business',
-            accessToken,
-          },
-        });
-        try {
-          await axios.post(
-            `${META_BASE_URL}/${META_API_VERSION}/${wabaId}/subscribed_apps`,
-            null,
-            { params: { access_token: accessToken } }
-          );
-        } catch(e) { console.warn('[Embedded Signup] Subscribe falhou:', e.response?.data || e.message); }
-        return res.json({ success: true, data: { accounts: [account] } });
-      } catch(err) {
-        return res.status(500).json({ success: false, message: 'Erro ao salvar conta.', error: err.message });
+      // 1. Resolver um token válido: code > accessToken bruto > token já salvo no banco > env
+      let accessToken = null;
+      if (code) {
+        accessToken = await toLongLivedToken(await exchangeSignupCode(code));
+      } else if (rawToken) {
+        accessToken = await toLongLivedToken(rawToken);
+      } else {
+        const existing =
+          (await prisma.wabaAccount.findUnique({ where: { phoneNumberId } })) ||
+          (await prisma.wabaAccount.findUnique({ where: { wabaId } }));
+        accessToken = existing?.accessToken || process.env.WHATSAPP_TOKEN || null;
+        if (accessToken) console.warn('[Embedded Signup] Sem code na requisição — reaproveitando token', existing ? 'da conta existente.' : 'do env WHATSAPP_TOKEN.');
       }
+      if (!accessToken) {
+        return res.status(422).json({ success: false, message: 'Nenhum token disponível. Refaça a conexão (code ausente).' });
+      }
+
+      // 2. Validar o token contra o número (evita salvar conta com token morto)
+      const phoneInfo = await fetchPhoneInfo(phoneNumberId, accessToken);
+      if (!phoneInfo) {
+        return res.status(422).json({
+          success: false,
+          message: 'Token sem acesso ao número informado. Refaça a conexão com o WhatsApp.',
+        });
+      }
+
+      // 3. Salvar — procura por phoneNumberId e também por wabaId (número pode ter migrado)
+      const data = {
+        wabaId,
+        phoneNumberId,
+        phoneNumber: phoneInfo.display_phone_number,
+        displayName: phoneInfo.verified_name || phoneInfo.display_phone_number || 'WhatsApp Business',
+        accessToken,
+        isActive: true,
+      };
+      let account =
+        (await prisma.wabaAccount.findUnique({ where: { phoneNumberId } })) ||
+        (await prisma.wabaAccount.findUnique({ where: { wabaId } }));
+      if (account) {
+        account = await prisma.wabaAccount.update({ where: { id: account.id }, data });
+      } else {
+        account = await prisma.wabaAccount.create({ data: { userId: req.user.id, ...data } });
+      }
+
+      // 4. Inscrever o app no WABA para receber webhooks
+      const subscribed = await subscribeAppToWaba(wabaId, accessToken);
+      if (subscribed !== account.webhookVerified) {
+        account = await prisma.wabaAccount.update({
+          where: { id: account.id },
+          data: { webhookVerified: subscribed },
+        });
+      }
+
+      return res.json({ success: true, data: { accounts: [account] } });
     }
 
     if (!code && !rawToken) return res.status(400).json({ success: false, message: 'code ou accessToken é obrigatório.' });
 
-    let shortLivedToken = rawToken;
-
-    if (code) {
-      // Fluxo code: trocar code por token de curta duração
-      const tokenRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
-        params: {
-          client_id:     process.env.META_APP_ID,
-          client_secret: process.env.META_APP_SECRET,
-          redirect_uri:  'https://www.facebook.com/connect/login_success.html',
-          code,
-        },
-      });
-      shortLivedToken = tokenRes.data.access_token;
-    }
+    const shortLivedToken = code ? await exchangeSignupCode(code) : rawToken;
 
     // Trocar por token de longa duração (60 dias)
-    const llRes = await axios.get(`${META_BASE_URL}/oauth/access_token`, {
-      params: {
-        grant_type:        'fb_exchange_token',
-        client_id:         process.env.META_APP_ID,
-        client_secret:     process.env.META_APP_SECRET,
-        fb_exchange_token: shortLivedToken,
-      },
-    });
-    const accessToken = llRes.data.access_token;
+    const accessToken = await toLongLivedToken(shortLivedToken);
 
     // 3. Buscar negócios e WABAs vinculados
     const wabasRes = await axios.get(`${META_BASE_URL}/${META_API_VERSION}/me/businesses`, {
@@ -335,16 +411,7 @@ const embeddedSignup = async (req, res) => {
           savedAccounts.push(account);
 
           // 5. Inscrever app para receber eventos deste WABA
-          try {
-            await axios.post(
-              `${META_BASE_URL}/${META_API_VERSION}/${waba.id}/subscribed_apps`,
-              null,
-              { params: { access_token: accessToken } }
-            );
-            console.log('[Embedded Signup] App inscrito no WABA:', waba.id);
-          } catch (e) {
-            console.warn('[Embedded Signup] Subscribe falhou:', e.response?.data || e.message);
-          }
+          await subscribeAppToWaba(waba.id, accessToken);
         }
       }
     }

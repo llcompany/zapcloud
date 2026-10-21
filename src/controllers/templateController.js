@@ -1,10 +1,9 @@
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 
 const prisma = require('../utils/prisma');
-const { extractVariables, publicBaseUrl } = require('../utils/templateVars');
+const { extractVariables } = require('../utils/templateVars');
+const { getSupabase } = require('../utils/supabase');
 
 const META_BASE_URL = process.env.META_BASE_URL || 'https://graph.facebook.com';
 const META_API_VERSION = process.env.META_API_VERSION || 'v19.0';
@@ -97,8 +96,9 @@ function parseButton(buttonText, buttonUrl) {
 
 // ─── Upload de imagem de header para a Meta (Resumable Upload API) ──────────
 // Gera o `handle` exigido no example.header_handle da criação do template e
-// salva uma cópia pública local — a Meta exige a imagem de novo em cada envio.
-const HEADER_UPLOAD_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'template-headers');
+// salva uma cópia pública no Supabase Storage — a Meta exige a imagem de novo
+// em cada envio, e o filesystem do Railway é efêmero (apagado a cada deploy).
+const HEADER_BUCKET = 'template-headers';
 
 const uploadTemplateHeader = async (req, res) => {
   try {
@@ -114,6 +114,10 @@ const uploadTemplateHeader = async (req, res) => {
     const appId = process.env.META_APP_ID;
     if (!appId) {
       return res.status(500).json({ success: false, message: 'META_APP_ID não configurado no servidor.' });
+    }
+    const supabase = getSupabase();
+    if (!supabase) {
+      return res.status(500).json({ success: false, message: 'SUPABASE_URL/SUPABASE_SERVICE_KEY não configurados no servidor.' });
     }
 
     // 1) Abre a sessão de upload no app
@@ -141,15 +145,20 @@ const uploadTemplateHeader = async (req, res) => {
     const handle = uploaded.data?.h;
     if (!handle) throw new Error('A Meta não retornou o handle da imagem.');
 
-    // 3) Guarda cópia pública para usar como link de header em cada disparo
-    fs.mkdirSync(HEADER_UPLOAD_DIR, { recursive: true });
+    // 3) Guarda cópia pública no Supabase Storage para usar como link de header
+    // em cada disparo — a URL não muda entre deploys do Railway
     const ext = req.file.mimetype === 'image/png' ? '.png' : '.jpg';
     const filename = `${crypto.randomUUID()}${ext}`;
-    fs.writeFileSync(path.join(HEADER_UPLOAD_DIR, filename), req.file.buffer);
-    const base = publicBaseUrl() || `${req.protocol}://${req.get('host')}`;
-    const url = `${base}/uploads/template-headers/${filename}`;
+    const { error: storageError } = await supabase.storage
+      .from(HEADER_BUCKET)
+      .upload(filename, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
+    if (storageError) {
+      throw new Error(`Falha ao salvar a imagem no Supabase Storage: ${storageError.message}`);
+    }
+    const { data: publicData } = supabase.storage.from(HEADER_BUCKET).getPublicUrl(filename);
+    const url = publicData.publicUrl;
 
-    console.log('[Template] Imagem de header enviada à Meta:', filename);
+    console.log('[Template] Imagem de header enviada à Meta + Supabase:', filename);
     res.json({ success: true, data: { handle, url } });
   } catch (err) {
     console.error('[Template] uploadTemplateHeader:', err?.response?.data || err.message);

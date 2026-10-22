@@ -581,9 +581,50 @@ const getCampaignReport = async (req, res) => {
       receitaNoMes  = Number(rows[0]?.receita_no_mes) || 0;
     }
 
+    // Carryover: campanhas enviadas ANTES do período cujos 30 dias de atribuição
+    // ainda alcançam o período selecionado — compras feitas no período atual.
+    let vendasCarryover = 0;
+    let receitaCarryover = 0;
+    const prevStart = new Date(start.getTime() - 30 * 86400000);
+    const prevCampaigns = await prisma.campaign.findMany({
+      where: {
+        wabaAccountId,
+        status: { in: ['COMPLETED', 'RUNNING'] },
+        OR: [
+          { startedAt: { gte: prevStart, lt: start } },
+          { startedAt: null, createdAt: { gte: prevStart, lt: start } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (prevCampaigns.length > 0) {
+      const prevIdList = prevCampaigns.map(c => `'${c.id}'`).join(',');
+      const coRows = await prisma.$queryRawUnsafe(`
+        SELECT
+          COALESCE(SUM(vendas_co), 0)::int    AS vendas_co,
+          COALESCE(SUM(receita_co), 0)::float AS receita_co
+        FROM (
+          SELECT
+            ce."campaignId",
+            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2) AS vendas_co,
+            COALESCE(SUM(co.total) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2), 0) AS receita_co
+          FROM zapcloud.campaign_executions ce
+          JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
+          WHERE ce."campaignId" IN (${prevIdList})
+            AND ce.status = 'SENT'
+            AND ce."sentAt" IS NOT NULL
+            AND co."orderedAt" > ce."sentAt"
+            AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
+          GROUP BY ce."campaignId"
+        ) carryover_stats
+      `, start, end);
+      vendasCarryover  = Number(coRows[0]?.vendas_co)  || 0;
+      receitaCarryover = Number(coRows[0]?.receita_co) || 0;
+    }
+
     res.json({
       success: true,
-      data: { totalDisparos, totalGasto, vendasGeradas, receitaGerada, vendasNoMes, receitaNoMes, startDate: start, endDate: end },
+      data: { totalDisparos, totalGasto, vendasGeradas, receitaGerada, vendasNoMes, receitaNoMes, vendasCarryover, receitaCarryover, startDate: start, endDate: end },
     });
   } catch (err) {
     console.error('[Campaign] Erro no relatório:', err.message);

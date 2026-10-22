@@ -2088,7 +2088,7 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onPause,pausing,o
       )}
 
       {/* Conversões — visível para campanhas em andamento ou concluídas */}
-      {(c.status==='RUNNING'||c.status==='COMPLETED')&&(
+      {(c.sentCount>0)&&(
         <div style={{background:'#F0FFF4',borderRadius:14,padding:16,marginTop:16,border:'1px solid #C6F6D5'}}>
           <p style={{fontSize:13,fontWeight:600,color:'#276749',marginBottom:12}}>🛒 Vendas Geradas</p>
           {displayConv==null?(

@@ -1959,7 +1959,7 @@ function Templates({token,wabaId}){
 const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
 const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
-function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,forcingComplete,converters}){
+function CampaignReport({campaign,onClose,onRefresh,refreshing,onPause,pausing,onForceComplete,forcingComplete,converters}){
   // conv vem embutido no objeto campaign (buscado junto no openReport)
   const conv=campaign?.conv??null;
   // Guarda o último conv conhecido para nunca voltar ao "Carregando..." num refresh que falhou.
@@ -1999,8 +1999,13 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onForceComplete,f
           </p>
         </div>
         <div style={{display:'flex',gap:8,flexShrink:0}}>
-          {(c.status==='RUNNING'||(c.status==='COMPLETED'&&(c.sentCount||0)<(c.totalRecipients||0)))&&onForceComplete&&(
-            <button onClick={onForceComplete} disabled={forcingComplete} title="Retomar envios que pararam" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #ECB22E',background:'#FFFBEB',fontSize:12,fontWeight:600,color:'#B7791F',cursor:'pointer'}}>
+          {c.status==='RUNNING'&&onPause&&(
+            <button onClick={onPause} disabled={pausing} title="Pausar o disparo — para no próximo cliente" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #FF5252',background:'#FFF5F5',fontSize:12,fontWeight:600,color:'#C53030',cursor:'pointer'}}>
+              {pausing?'Pausando...':'⏸ Pausar disparo'}
+            </button>
+          )}
+          {c.status==='PAUSED'&&onForceComplete&&(
+            <button onClick={onForceComplete} disabled={forcingComplete} title="Retomar envios de onde pararam" style={{padding:'7px 12px',borderRadius:10,border:'1px solid #ECB22E',background:'#FFFBEB',fontSize:12,fontWeight:600,color:'#B7791F',cursor:'pointer'}}>
               {forcingComplete?'Retomando...':'▶ Retomar disparo'}
             </button>
           )}
@@ -2201,10 +2206,29 @@ function Campaigns({token,wabaId}){
     if(!report||!window.confirm('Retomar o disparo de onde parou? Os clientes que já receberam NÃO serão contactados novamente.'))return;
     setForcingComplete(true);
     try{
+      // PAUSED → RUNNING no backend antes de voltar a processar os lotes
+      if(report.status==='PAUSED'){
+        const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${report.id}/resume`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
+        const d=await r.json();
+        if(!d.success) throw new Error(d.message);
+      }
       await runBatches(report.id,()=>alert('✅ Disparo concluído!'));
       openReport(report.id);
     }catch(e){alert('Erro: '+e.message);}
     setForcingComplete(false);
+  };
+
+  const [pausing,setPausing]=useState(false);
+  const pauseDispatch=async()=>{
+    if(!report)return;
+    setPausing(true);
+    try{
+      const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${report.id}/pause`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
+      const d=await r.json();
+      if(!d.success) throw new Error(d.message);
+      openReport(report.id);load();
+    }catch(e){alert('Erro: '+e.message);}
+    setPausing(false);
   };
 
   // Campanha em execução: atualiza sozinha para o usuário ver o disparo andar
@@ -2284,18 +2308,18 @@ function Campaigns({token,wabaId}){
     setSendingTest(false);
   };
 
-  // Executa/retoma um disparo em lotes de 50 até done=true
+  // Executa/retoma um disparo em lotes até done=true; encerra se a campanha for pausada
   const runBatches=async(id,onDone)=>{
-    let done=false;
-    while(!done){
+    let done=false,paused=false;
+    while(!done&&!paused){
       const r=await fetch(`${API}/api/crm/${wabaId}/campaigns/${id}/execute`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
       const d=await r.json();
       if(!d.success) throw new Error(d.message);
-      done=d.done;
+      done=d.done;paused=!!d.paused;
       // Atualiza lista a cada lote para mostrar progresso
       load();
     }
-    if(onDone) onDone();
+    if(done&&onDone) onDone();
   };
 
   const executeCampaign=async(id)=>{
@@ -2589,7 +2613,7 @@ function Campaigns({token,wabaId}){
        </div>)}
      </div>}
     {reportId&&!report&&loadingReport&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,color:'#fff',fontSize:13}}>Carregando relatório...</div>}
-    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport} onForceComplete={forceComplete} forcingComplete={forcingComplete} converters={converters}/>}
+    {report&&<CampaignReport campaign={report} onClose={closeReport} onRefresh={()=>openReport(report.id)} refreshing={loadingReport} onPause={pauseDispatch} pausing={pausing} onForceComplete={forceComplete} forcingComplete={forcingComplete} converters={converters}/>}
   </div>;
 }
 

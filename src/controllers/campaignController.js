@@ -266,6 +266,11 @@ const executeCampaign = async (req, res) => {
       include: { template: true },
     });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+    // Pausada não é erro: o loop de lotes do frontend recebe paused=true e para.
+    // Retomar exige POST /resume (PAUSED → RUNNING) antes de voltar a executar.
+    if (campaign.status === 'PAUSED') {
+      return res.json({ success: true, paused: true, done: false, message: 'Campanha pausada. Retome o disparo para continuar.' });
+    }
     // Permite retomar RUNNING (disparo interrompido) e COMPLETED (redisparo explícito)
     if (!['DRAFT','RUNNING','COMPLETED','FAILED'].includes(campaign.status)) {
       return res.status(400).json({ success: false, message: `Não é possível disparar campanha com status ${campaign.status}.` });
@@ -353,7 +358,19 @@ const executeCampaign = async (req, res) => {
     const params = Array.isArray(campaign.templateParams) ? campaign.templateParams : [];
     let sent = alreadySent, failed = alreadyFailed;
 
+    // Pausa checada antes de CADA envio: o botão "Pausar disparo" muda o status
+    // no banco e o lote em andamento para no próximo cliente, sem esperar o fim.
+    let paused = false;
+    let processedInBatch = 0;
+
     for (const customer of batch) {
+      const current = await prisma.campaign.findUnique({
+        where: { id: campaignId },
+        select: { status: true },
+      });
+      if (current?.status === 'PAUSED') { paused = true; break; }
+      processedInBatch++;
+
       try {
         let execution;
         try {
@@ -393,8 +410,9 @@ const executeCampaign = async (req, res) => {
       await new Promise(r => setTimeout(r, DELAY_MS));
     }
 
-    const remaining = pending.length - batch.length;
-    const done = remaining === 0;
+    // Pausou no meio do lote: os não processados continuam pendentes
+    const remaining = pending.length - processedInBatch;
+    const done = !paused && remaining === 0;
 
     await prisma.campaign.update({
       where: { id: campaignId },
@@ -412,10 +430,13 @@ const executeCampaign = async (req, res) => {
     res.json({
       success: true,
       done,
+      paused,
       remaining,
       message: done
         ? `Disparo concluído! ${sent} enviadas, ${failed} falhas.`
-        : `Lote processado: ${sent} enviadas até agora. Ainda ${remaining} restantes.`,
+        : paused
+          ? `Disparo pausado: ${sent} enviadas até agora. Ainda ${remaining} restantes.`
+          : `Lote processado: ${sent} enviadas até agora. Ainda ${remaining} restantes.`,
       data: { total: customers.length, sent, failed, remaining },
     });
 
@@ -796,6 +817,52 @@ const testSend = async (req, res) => {
   }
 };
 
+// ─── Pausar disparo em andamento ──────────────────────────────────────────────
+// O loop de envio checa o status antes de cada mensagem — o lote em andamento
+// para no próximo cliente e os pendentes ficam aguardando o retomar.
+const pauseCampaign = async (req, res) => {
+  try {
+    const { wabaAccountId, campaignId } = req.params;
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+    if (campaign.status !== 'RUNNING') {
+      return res.status(400).json({ success: false, message: `Só é possível pausar campanha em disparo (status: ${campaign.status}).` });
+    }
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'PAUSED' },
+    });
+
+    res.json({ success: true, message: 'Campanha pausada. O envio para no próximo cliente.', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Erro ao pausar campanha.', error: err.message });
+  }
+};
+
+// ─── Retomar campanha pausada ─────────────────────────────────────────────────
+// PAUSED → RUNNING. O frontend volta a chamar /execute em lotes na sequência;
+// a unique constraint de campaign_executions garante que ninguém recebe duas vezes.
+const resumeCampaign = async (req, res) => {
+  try {
+    const { wabaAccountId, campaignId } = req.params;
+    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, wabaAccountId } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+    if (campaign.status !== 'PAUSED') {
+      return res.status(400).json({ success: false, message: `Só é possível retomar campanha pausada (status: ${campaign.status}).` });
+    }
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'RUNNING' },
+    });
+
+    res.json({ success: true, message: 'Campanha retomada.', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Erro ao retomar campanha.', error: err.message });
+  }
+};
+
 // ─── Força conclusão de campanha travada em RUNNING ──────────────────────────
 const forceCompleteCampaign = async (req, res) => {
   try {
@@ -868,4 +935,4 @@ const getCampaignConverters = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, forceCompleteCampaign, getCampaignConverters };
+module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, pauseCampaign, resumeCampaign, forceCompleteCampaign, getCampaignConverters };

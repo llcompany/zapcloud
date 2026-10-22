@@ -4,7 +4,7 @@ const { body, param } = require('express-validator');
 const router = express.Router();
 const { listCustomers, upsertCustomer, importCustomers, getMetrics, deleteCustomer, deleteBySource, getCustomerOrders } = require('../controllers/crmController');
 const { importContacts } = require('../controllers/contactController');
-const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, forceCompleteCampaign, getCampaignConverters } = require('../controllers/campaignController');
+const { listCampaigns, createCampaign, previewSegment, executeCampaign, getCampaign, testSend, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, pauseCampaign, resumeCampaign, forceCompleteCampaign, getCampaignConverters } = require('../controllers/campaignController');
 const { authenticate, validateWabaOwnership } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 
@@ -60,6 +60,8 @@ router.post('/:wabaAccountId/campaigns/preview', previewSegment);
 router.get('/:wabaAccountId/campaigns/:campaignId', getCampaign);
 router.post('/:wabaAccountId/campaigns/test-send', testSend);
 router.post('/:wabaAccountId/campaigns/:campaignId/execute', executeCampaign);
+router.post('/:wabaAccountId/campaigns/:campaignId/pause', pauseCampaign);
+router.post('/:wabaAccountId/campaigns/:campaignId/resume', resumeCampaign);
 router.get('/:wabaAccountId/campaigns/:campaignId/conversions', getCampaignConversions);
 router.get('/:wabaAccountId/campaigns/:campaignId/converters', getCampaignConverters);
 router.get('/:wabaAccountId/campaigns-report', getCampaignReport);

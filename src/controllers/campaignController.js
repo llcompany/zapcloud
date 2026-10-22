@@ -453,7 +453,8 @@ const getCampaign = async (req, res) => {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, wabaAccountId },
       include: {
-        template: { select: { name: true, costPerConversation: true, linkUrl: true } },
+        // bodyText/headerImageUrl/components alimentam o preview da mensagem no modal de relatório
+        template: { select: { name: true, costPerConversation: true, linkUrl: true, bodyText: true, headerImageUrl: true, components: true } },
         executions: { include: { crmCustomer: true }, take: 20, orderBy: { createdAt: 'desc' } },
       },
     });

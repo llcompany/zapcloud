@@ -1958,6 +1958,12 @@ function Templates({token,wabaId}){
 /* ══════════════════════════ RELATÓRIO DE CAMPANHA ══════════════════════════ */
 const pct=(n,base)=>base>0?Math.round((n/base)*100):0;
 const brl=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+// Botão CTA (tipo URL) vive dentro do JSON components do template, no formato da Meta
+const templateButton=t=>{
+  const defs=Array.isArray(t?.components)?t.components:[];
+  const btns=defs.find(c=>String(c.type).toUpperCase()==='BUTTONS')?.buttons||[];
+  return btns.find(b=>String(b.type).toUpperCase()==='URL')||null;
+};
 
 function CampaignReport({campaign,onClose,onRefresh,refreshing,onPause,pausing,onForceComplete,forcingComplete,converters}){
   // conv vem embutido no objeto campaign (buscado junto no openReport)
@@ -2064,6 +2070,22 @@ function CampaignReport({campaign,onClose,onRefresh,refreshing,onPause,pausing,o
         {c.estimatedCost==null&&
           <p style={{fontSize:11,color:C.mt,marginTop:10}}>Defina o custo por conversa no template para acompanhar gasto.</p>}
       </div>
+
+      {/* Preview da mensagem — header de imagem e botão CTA como no WhatsApp */}
+      {(c.template?.bodyText||c.message)&&(
+        <div style={{background:C.bg,borderRadius:14,padding:14,marginTop:16}}>
+          <p style={{fontSize:13,fontWeight:600,color:C.tx,marginBottom:10}}>💬 Mensagem enviada</p>
+          <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:c.template?.headerImageUrl?'4px 4px 8px':'8px 12px',maxWidth:'85%',marginLeft:'auto',overflow:'hidden'}}>
+            {c.template?.headerImageUrl&&<img src={c.template.headerImageUrl} alt="Header" style={{width:'100%',maxHeight:150,objectFit:'cover',borderRadius:9,display:'block',marginBottom:8}}/>}
+            <div style={c.template?.headerImageUrl?{padding:'0 8px'}:undefined}>
+              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{c.template?.bodyText||c.message}</p>
+            </div>
+            {templateButton(c.template)&&<div style={{borderTop:'1px solid rgba(0,0,0,.08)',paddingTop:8,textAlign:'center',margin:c.template?.headerImageUrl?'8px 8px 0':'8px 0 0'}}>
+              <span style={{fontSize:13,fontWeight:600,color:'#00A884'}}>🔗 {templateButton(c.template).text}</span>
+            </div>}
+          </div>
+        </div>
+      )}
 
       {/* Conversões — visível para campanhas em andamento ou concluídas */}
       {(c.status==='RUNNING'||c.status==='COMPLETED')&&(
@@ -2539,9 +2561,15 @@ function Campaigns({token,wabaId}){
         {selectedTpl&&<div style={{background:'#fff',borderRadius:16,padding:20,border:`1px solid ${C.br}`}}>
           <h3 style={{fontWeight:600,color:C.tx,marginBottom:12,fontSize:15}}>💬 Preview da mensagem</h3>
           <div style={{background:C.bg,borderRadius:12,padding:12}}>
-            <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:'8px 12px',maxWidth:'85%',marginLeft:'auto'}}>
-              <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{renderPreview()}</p>
-              <p style={{fontSize:10,color:C.mt,textAlign:'right',marginTop:4}}>Pré-visualização</p>
+            <div style={{background:C.bbl,borderRadius:'12px 12px 4px 12px',padding:selectedTpl.headerImageUrl?'4px 4px 8px':'8px 12px',maxWidth:'85%',marginLeft:'auto',overflow:'hidden'}}>
+              {selectedTpl.headerImageUrl&&<img src={selectedTpl.headerImageUrl} alt="Header" style={{width:'100%',maxHeight:150,objectFit:'cover',borderRadius:9,display:'block',marginBottom:8}}/>}
+              <div style={selectedTpl.headerImageUrl?{padding:'0 8px'}:undefined}>
+                <p style={{fontSize:13,color:C.tx,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{renderPreview()}</p>
+                <p style={{fontSize:10,color:C.mt,textAlign:'right',marginTop:4}}>Pré-visualização</p>
+              </div>
+              {templateButton(selectedTpl)&&<div style={{borderTop:'1px solid rgba(0,0,0,.08)',paddingTop:8,textAlign:'center',margin:selectedTpl.headerImageUrl?'8px 8px 0':'8px 0 0'}}>
+                <span style={{fontSize:13,fontWeight:600,color:'#00A884'}}>🔗 {templateButton(selectedTpl).text}</span>
+              </div>}
             </div>
           </div>
         </div>}

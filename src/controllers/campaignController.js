@@ -531,11 +531,28 @@ const getCampaignReport = async (req, res) => {
           { startedAt: null, createdAt: { gte: start, lte: end } },
         ],
       },
-      select: { id: true, sentCount: true, totalCost: true },
+      select: {
+        id: true, sentCount: true, totalCost: true,
+        estimatedCost: true, totalRecipients: true,
+        template: { select: { costPerConversation: true } },
+      },
     });
 
     const totalDisparos = campaigns.reduce((s, c) => s + (c.sentCount || 0), 0);
-    const totalGasto    = campaigns.reduce((s, c) => s + (c.totalCost || 0), 0);
+    // Campanhas pausadas (ou concluídas sem custo gravado) ficam com totalCost null;
+    // nesse caso o gasto é calculado na hora: sentCount x costPerConversation do
+    // template, com fallback estimatedCost/totalRecipients (mesma derivação do
+    // forceCompleteCampaign). Sem custo derivável, permanece null.
+    const campaignCost = (c) => {
+      if (c.totalCost != null) return c.totalCost;
+      if (!c.sentCount) return null;
+      const unitCost = c.template?.costPerConversation
+        || (c.estimatedCost && c.totalRecipients ? c.estimatedCost / c.totalRecipients : 0);
+      return unitCost ? Number((c.sentCount * unitCost).toFixed(2)) : null;
+    };
+    const costs      = campaigns.map(campaignCost);
+    const hasAnyCost = costs.some(v => v != null);
+    const totalGasto = hasAnyCost ? costs.reduce((s, v) => s + (v || 0), 0) : null;
     const campaignIds   = campaigns.map(c => c.id);
 
     let vendasGeradas = 0;

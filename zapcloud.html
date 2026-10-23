@@ -2787,11 +2787,7 @@ function CampaignRelatorio({token,wabaId}){
         <p style={{fontSize:34,fontWeight:800,color:'#276749',lineHeight:1,marginBottom:8}}>
           {recurrence==null?(loading?'...':'—'):recurrence.voltaram}
         </p>
-        <p style={{fontSize:12,color:C.mt}}>
-          {recurrence!=null&&data?.vendasNoMes>0
-            ?`${Math.round(recurrence.voltaram/data.vendasNoMes*100)}% das vendas do período — clientes que voltaram a comprar após os 30 dias da campanha.`
-            :'Clientes que voltaram a comprar após os 30 dias da campanha.'}
-        </p>
+        <p style={{fontSize:12,color:C.mt}}>Clientes que voltaram a comprar após os 30 dias da campanha, sem precisar receber um novo disparo.</p>
       </div>
     </div>
 

@@ -2691,6 +2691,7 @@ function CampaignRelatorio({token,wabaId}){
   useEffect(()=>{load();},[token,wabaId]);
 
   const prevMonthLabel=(()=>{const d=new Date(startDate+'T12:00:00');d.setMonth(d.getMonth()-1);return d.toLocaleString('pt-BR',{month:'long'});})();
+  const currentMonthLabel=(()=>{const d=new Date(startDate+'T12:00:00');return d.toLocaleString('pt-BR',{month:'long'});})();
   const cardItem=(label,value,fmt,icon,color)=>(
     <div key={label} style={{background:'#fff',borderRadius:16,padding:24,border:`1px solid ${C.br}`,display:'flex',alignItems:'center',gap:18}}>
       <div style={{width:52,height:52,borderRadius:14,background:color+'15',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{icon}</div>
@@ -2749,7 +2750,7 @@ function CampaignRelatorio({token,wabaId}){
       {sectionLabel(`Clientes de ${prevMonthLabel} que continuaram comprando`)}
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:16}}>
         {cardItem(`Pedidos de clientes de ${prevMonthLabel}`,data?.vendasCarryover??'—',v=>v,'🛒','#276749')}
-        {cardItem(`Receita de clientes de ${prevMonthLabel}`,data?.receitaCarryover??null,v=>brl(v),'💰','#276749')}
+        {cardItem(`Receita de clientes de ${prevMonthLabel} gerada em ${currentMonthLabel}`,data?.receitaCarryover??null,v=>brl(v),'💰','#276749')}
       </div>
     </>}
 

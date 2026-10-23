@@ -525,7 +525,7 @@ const getCampaignReport = async (req, res) => {
     const campaigns = await prisma.campaign.findMany({
       where: {
         wabaAccountId,
-        status: { in: ['COMPLETED', 'RUNNING'] },
+        status: { in: ['COMPLETED', 'RUNNING', 'PAUSED'] },
         OR: [
           { startedAt: { gte: start, lte: end } },
           { startedAt: null, createdAt: { gte: start, lte: end } },
@@ -589,7 +589,7 @@ const getCampaignReport = async (req, res) => {
     const prevCampaigns = await prisma.campaign.findMany({
       where: {
         wabaAccountId,
-        status: { in: ['COMPLETED', 'RUNNING'] },
+        status: { in: ['COMPLETED', 'RUNNING', 'PAUSED'] },
         OR: [
           { startedAt: { gte: prevStart, lt: start } },
           { startedAt: null, createdAt: { gte: prevStart, lt: start } },
@@ -639,7 +639,7 @@ const findReportCampaignIds = async (wabaAccountId, startDate, endDate) => {
   const campaigns = await prisma.campaign.findMany({
     where: {
       wabaAccountId,
-      status: { in: ['COMPLETED', 'RUNNING'] },
+      status: { in: ['COMPLETED', 'RUNNING', 'PAUSED'] },
       OR: [
         { startedAt: { gte: start, lte: end } },
         { startedAt: null, createdAt: { gte: start, lte: end } },

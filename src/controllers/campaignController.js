@@ -868,6 +868,34 @@ const testSend = async (req, res) => {
     );
 
     const waMessageId = response.data?.messages?.[0]?.id;
+
+    // Grava o teste em messages para o webhook de status (processStatusUpdate)
+    // conseguir registrar DELIVERED/READ/FAILED pelo waMessageId.
+    if (waMessageId) {
+      try {
+        const contact = await prisma.contact.upsert({
+          where: { wabaAccountId_phone: { wabaAccountId, phone: normalized } },
+          update: {},
+          create: { wabaAccountId, phone: normalized, name: customer.name || 'Cliente' },
+        });
+        await prisma.message.create({
+          data: {
+            wabaAccountId,
+            contactId: contact.id,
+            waMessageId,
+            direction: 'OUTBOUND',
+            type: template ? 'TEMPLATE' : 'TEXT',
+            status: 'SENT',
+            content: { test: true, templateName: template?.name || null, text: finalMessage },
+            sentAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        // Teste já foi enviado à Meta — falha ao registrar não deve derrubar a resposta
+        console.error('[Campaign] Falha ao registrar teste em messages:', dbErr.message);
+      }
+    }
+
     console.log('[Campaign] Teste enviado para', normalized, '| msgId:', waMessageId);
     res.json({ success: true, message: 'Mensagem de teste enviada!', data: { phone: normalized, finalMessage, waMessageId } });
   } catch (err) {

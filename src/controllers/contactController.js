@@ -33,7 +33,7 @@ const listContacts = async (req, res) => {
     const [contacts, total] = await Promise.all([
       prisma.contact.findMany({
         where,
-        orderBy: { lastSeenAt: 'desc' },
+        orderBy: { lastSeenAt: { sort: 'desc', nulls: 'last' } },
         skip,
         take: Number(limit),
         include: {

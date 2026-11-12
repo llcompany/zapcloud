@@ -2735,7 +2735,7 @@ function CampaignRelatorio({token,wabaId}){
     {/* Cards — disparo e custo */}
     <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:16}}>
       {cardItem('Mensagens Enviadas',data?.totalDisparos??'—',v=>v,'📤',C.p)}
-      {cardItem('Valor Gasto',data?.totalGasto??null,v=>brl(v),'💸','#FF7043')}
+      {cardItem('Valor Gasto',data?.totalGasto!=null?data.totalGasto:'—',v=>brl(v),'💸','#FF7043')}
     </div>
 
     {/* Cards — resultado do período */}
@@ -2770,7 +2770,7 @@ function CampaignRelatorio({token,wabaId}){
           return <div key={rw.label} style={{marginBottom:12}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
               <span style={{color:C.mt}}>{rw.label}</span>
-              <span style={{fontWeight:700,color:rw.color}}>{speed==null&&loading?'...':`${rw.value} ${rw.value===1?'venda':'vendas'} · ${pct}%`}</span>
+              <span style={{fontWeight:700,color:rw.color}}>{speed==null&&loading?'...':`${pct}%`}</span>
             </div>
             <div style={{height:8,borderRadius:6,background:C.bg,overflow:'hidden'}}>
               <div style={{width:`${pct}%`,height:'100%',borderRadius:6,background:rw.color,transition:'width .4s'}}/>

@@ -669,21 +669,18 @@ const getCampaignSpeedReport = async (req, res) => {
     let rapidas = 0, medias = 0, lentas = 0;
     if (campaignIds.length > 0) {
       const idList = campaignIds.map(id => `'${id}'`).join(',');
-      // Agrupa por campanha antes de somar, como no relatório geral: um pedido
-      // atribuído a mais de uma campanha conta em todas, e a soma dos buckets
-      // bate com o total de vendas do relatório
+      // Deduplica por pedido, como no relatório geral: um pedido atribuído a
+      // mais de uma campanha conta uma única vez. Como o bucket depende do
+      // sentAt, o GROUP BY co.id fixa um disparo por pedido — MAX(sentAt) =
+      // o envio mais recente antes da compra, o gatilho mais plausível.
       const rows = await prisma.$queryRawUnsafe(`
         SELECT
-          COALESCE(SUM(rapidas), 0)::int AS rapidas,
-          COALESCE(SUM(medias),  0)::int AS medias,
-          COALESCE(SUM(lentas),  0)::int AS lentas
+          COUNT(*) FILTER (WHERE "orderedAt" < "sentAt" + INTERVAL '72 hours')::int  AS rapidas,
+          COUNT(*) FILTER (WHERE "orderedAt" >= "sentAt" + INTERVAL '72 hours'
+                             AND "orderedAt" < "sentAt" + INTERVAL '360 hours')::int AS medias,
+          COUNT(*) FILTER (WHERE "orderedAt" >= "sentAt" + INTERVAL '360 hours')::int AS lentas
         FROM (
-          SELECT
-            ce."campaignId",
-            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" < ce."sentAt" + INTERVAL '72 hours')  AS rapidas,
-            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '72 hours'
-                                            AND co."orderedAt" < ce."sentAt" + INTERVAL '360 hours') AS medias,
-            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= ce."sentAt" + INTERVAL '360 hours') AS lentas
+          SELECT co.id, co."orderedAt", MAX(ce."sentAt") AS "sentAt"
           FROM zapcloud.campaign_executions ce
           JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
           WHERE ce."campaignId" IN (${idList})
@@ -691,8 +688,8 @@ const getCampaignSpeedReport = async (req, res) => {
             AND ce."sentAt" IS NOT NULL
             AND co."orderedAt" > ce."sentAt"
             AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
-          GROUP BY ce."campaignId"
-        ) campaign_buckets
+          GROUP BY co.id, co."orderedAt"
+        ) AS distinct_orders
       `);
       rapidas = Number(rows[0]?.rapidas) || 0;
       medias  = Number(rows[0]?.medias)  || 0;

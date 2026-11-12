@@ -564,24 +564,19 @@ const getCampaignReport = async (req, res) => {
       // Pedidos realizados por clientes que receberam alguma dessas campanhas,
       // dentro de 30 dias após o envio
       const idList = campaignIds.map(id => `'${id}'`).join(',');
-      // Calcula vendas/receita por campanha e soma, replicando o que cada
-      // getCampaignConversions mostra individualmente — assim o total do relatório
-      // sempre bate com a soma dos relatórios de cada campanha (um pedido atribuído
-      // a mais de uma campanha conta em todas, como nos relatórios individuais).
+      // DISTINCT deduplica pedidos antes do SUM (mesmo padrão do
+      // getCampaignConversions): um pedido de cliente que recebeu mais de uma
+      // campanha conta uma única vez no total do relatório — por isso o total
+      // pode ficar abaixo da soma dos relatórios individuais por campanha.
       // As colunas *_no_mes restringem adicionalmente ao próprio período selecionado.
       const rows = await prisma.$queryRawUnsafe(`
         SELECT
-          COALESCE(SUM(vendas), 0)::int    AS total_vendas,
-          COALESCE(SUM(receita), 0)::float AS total_receita,
-          COALESCE(SUM(vendas_no_mes), 0)::int    AS vendas_no_mes,
-          COALESCE(SUM(receita_no_mes), 0)::float AS receita_no_mes
+          COUNT(*)::int                  AS total_vendas,
+          COALESCE(SUM(total), 0)::float AS total_receita,
+          COUNT(*) FILTER (WHERE "orderedAt" >= $1 AND "orderedAt" <= $2)::int AS vendas_no_mes,
+          COALESCE(SUM(total) FILTER (WHERE "orderedAt" >= $1 AND "orderedAt" <= $2), 0)::float AS receita_no_mes
         FROM (
-          SELECT
-            ce."campaignId",
-            COUNT(DISTINCT co.id)              AS vendas,
-            COALESCE(SUM(co.total), 0)         AS receita,
-            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2) AS vendas_no_mes,
-            COALESCE(SUM(co.total) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2), 0) AS receita_no_mes
+          SELECT DISTINCT co.id, co.total, co."orderedAt"
           FROM zapcloud.campaign_executions ce
           JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
           WHERE ce."campaignId" IN (${idList})
@@ -589,8 +584,7 @@ const getCampaignReport = async (req, res) => {
             AND ce."sentAt" IS NOT NULL
             AND co."orderedAt" > ce."sentAt"
             AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
-          GROUP BY ce."campaignId"
-        ) campaign_stats
+        ) AS distinct_orders
       `, start, end);
       vendasGeradas = Number(rows[0]?.total_vendas) || 0;
       receitaGerada = Number(rows[0]?.total_receita) || 0;
@@ -616,15 +610,13 @@ const getCampaignReport = async (req, res) => {
     });
     if (prevCampaigns.length > 0) {
       const prevIdList = prevCampaigns.map(c => `'${c.id}'`).join(',');
+      // DISTINCT deduplica pedidos antes do SUM, como na query principal acima
       const coRows = await prisma.$queryRawUnsafe(`
         SELECT
-          COALESCE(SUM(vendas_co), 0)::int    AS vendas_co,
-          COALESCE(SUM(receita_co), 0)::float AS receita_co
+          COUNT(*) FILTER (WHERE "orderedAt" >= $1 AND "orderedAt" <= $2)::int AS vendas_co,
+          COALESCE(SUM(total) FILTER (WHERE "orderedAt" >= $1 AND "orderedAt" <= $2), 0)::float AS receita_co
         FROM (
-          SELECT
-            ce."campaignId",
-            COUNT(DISTINCT co.id) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2) AS vendas_co,
-            COALESCE(SUM(co.total) FILTER (WHERE co."orderedAt" >= $1 AND co."orderedAt" <= $2), 0) AS receita_co
+          SELECT DISTINCT co.id, co.total, co."orderedAt"
           FROM zapcloud.campaign_executions ce
           JOIN zapcloud.customer_orders co ON co."crmCustomerId" = ce."crmCustomerId"
           WHERE ce."campaignId" IN (${prevIdList})
@@ -632,8 +624,7 @@ const getCampaignReport = async (req, res) => {
             AND ce."sentAt" IS NOT NULL
             AND co."orderedAt" > ce."sentAt"
             AND co."orderedAt" < ce."sentAt" + INTERVAL '720 hours'
-          GROUP BY ce."campaignId"
-        ) carryover_stats
+        ) AS distinct_orders
       `, start, end);
       vendasCarryover  = Number(coRows[0]?.vendas_co)  || 0;
       receitaCarryover = Number(coRows[0]?.receita_co) || 0;

@@ -415,7 +415,7 @@ function Conversations({token}){
           :msgs.map(m=>{
             const isMe=m.direction==='OUTBOUND';
             const txt=m.type==='TEXT'?m.content&&m.content.text
-              :m.type==='TEMPLATE'?'[Template: '+(m.content&&m.content.templateName)+']'
+              :m.type==='TEMPLATE'?(m.content&&(m.content.templateBody||m.content.text))||'[Template: '+(m.content&&m.content.templateName)+']'
               :m.type==='IMAGE'?'📷 Imagem':m.type==='AUDIO'?'🎵 Áudio':m.type==='VIDEO'?'🎥 Vídeo':m.type==='DOCUMENT'?'📄 Documento':'[Mensagem]';
             return <div key={m.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',marginBottom:5}}>
               <div style={{maxWidth:'65%',padding:'8px 11px',boxShadow:'0 1px 2px rgba(0,0,0,.08)',background:isMe?C.bbl:'#fff',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px'}}>

@@ -20,6 +20,43 @@ function normalizePhone(phone) {
 }
 
 /**
+ * Registra em messages uma mensagem enviada pela plataforma (campanha ou teste),
+ * para que apareça no histórico de Conversas.
+ *
+ * O contato é localizado pelo wa_id devolvido pela Meta no envio — o mesmo valor
+ * que chega em msg.from no webhook quando o cliente responde. Para muitos celulares
+ * BR o wa_id vem SEM o nono dígito (12 dígitos), enquanto o CRM guarda 13; usar o
+ * telefone do CRM criaria um contato duplicado e separaria envio e resposta.
+ *
+ * Falha aqui só é logada: a mensagem já foi entregue à Meta e o disparo segue.
+ */
+async function recordOutboundMessage({ wabaAccountId, waId, contactName, waMessageId, type, content, sentAt }) {
+  if (!waMessageId || !waId) return;
+  try {
+    const contact = await prisma.contact.upsert({
+      where: { wabaAccountId_phone: { wabaAccountId, phone: waId } },
+      update: {},
+      create: { wabaAccountId, phone: waId, name: contactName || 'Cliente' },
+    });
+    await prisma.message.create({
+      data: {
+        wabaAccountId,
+        contactId: contact.id,
+        waMessageId,
+        direction: 'OUTBOUND',
+        type,
+        status: 'SENT',
+        content,
+        sentAt,
+        createdAt: sentAt,
+      },
+    });
+  } catch (dbErr) {
+    console.error('[Campaign] Falha ao registrar mensagem enviada em messages:', dbErr.message);
+  }
+}
+
+/**
  * Monta o payload da Meta para um cliente.
  * Com template → type:'template' (único formato aceito fora da janela de 24h).
  * Sem template → type:'text' (legado; só funciona dentro da janela de 24h).
@@ -393,11 +430,23 @@ const executeCampaign = async (req, res) => {
         );
 
         const waMessageId = response.data?.messages?.[0]?.id;
+        const sentAt = new Date();
         await prisma.campaignExecution.update({
           where: { id: execution.id },
-          data: { status: 'SENT', sentAt: new Date(), waMessageId, message: finalMessage },
+          data: { status: 'SENT', sentAt, waMessageId, message: finalMessage },
         });
         sent++;
+
+        // Espelha o disparo em messages para aparecer no histórico de Conversas
+        await recordOutboundMessage({
+          wabaAccountId,
+          waId: response.data?.contacts?.[0]?.wa_id || phone,
+          contactName: customer.name,
+          waMessageId,
+          type: 'TEMPLATE',
+          content: { templateName: template.name, templateBody: finalMessage },
+          sentAt,
+        });
       } catch (err) {
         failed++;
         console.error('[Campaign] Falha ao enviar para', customer.phone, '→', metaError(err));
@@ -943,32 +992,19 @@ const testSend = async (req, res) => {
 
     const waMessageId = response.data?.messages?.[0]?.id;
 
-    // Grava o teste em messages para o webhook de status (processStatusUpdate)
-    // conseguir registrar DELIVERED/READ/FAILED pelo waMessageId.
-    if (waMessageId) {
-      try {
-        const contact = await prisma.contact.upsert({
-          where: { wabaAccountId_phone: { wabaAccountId, phone: normalized } },
-          update: {},
-          create: { wabaAccountId, phone: normalized, name: customer.name || 'Cliente' },
-        });
-        await prisma.message.create({
-          data: {
-            wabaAccountId,
-            contactId: contact.id,
-            waMessageId,
-            direction: 'OUTBOUND',
-            type: template ? 'TEMPLATE' : 'TEXT',
-            status: 'SENT',
-            content: { test: true, templateName: template?.name || null, text: finalMessage },
-            sentAt: new Date(),
-          },
-        });
-      } catch (dbErr) {
-        // Teste já foi enviado à Meta — falha ao registrar não deve derrubar a resposta
-        console.error('[Campaign] Falha ao registrar teste em messages:', dbErr.message);
-      }
-    }
+    // Grava o teste em messages: aparece em Conversas e o webhook de status
+    // (processStatusUpdate) registra DELIVERED/READ/FAILED pelo waMessageId.
+    await recordOutboundMessage({
+      wabaAccountId,
+      waId: response.data?.contacts?.[0]?.wa_id || normalized,
+      contactName: customer.name,
+      waMessageId,
+      type: template ? 'TEMPLATE' : 'TEXT',
+      content: template
+        ? { test: true, templateName: template.name, templateBody: finalMessage }
+        : { test: true, text: finalMessage },
+      sentAt: new Date(),
+    });
 
     console.log('[Campaign] Teste enviado para', normalized, '| msgId:', waMessageId);
     res.json({ success: true, message: 'Mensagem de teste enviada!', data: { phone: normalized, finalMessage, waMessageId } });

@@ -321,7 +321,9 @@ const processInboundMessage = async (value, msg) => {
       content = { text: msg.text?.body };
     } else if (['image', 'audio', 'video', 'document'].includes(msg.type)) {
       type = msg.type.toUpperCase();
-      content = { mediaId: msg[msg.type]?.id, caption: msg[msg.type]?.caption };
+      const media = msg[msg.type] || {};
+      // filename só vem em document; mimeType ajuda o frontend antes do download
+      content = { mediaId: media.id, caption: media.caption, mimeType: media.mime_type, filename: media.filename };
     } else {
       content = msg[msg.type] || {};
     }
@@ -449,4 +451,78 @@ const getMessages = async (req, res) => {
   }
 };
 
-module.exports = { sendTextMessage, sendTemplate, webhookVerify, webhookReceive, getMessages };
+// ─── Proxy de mídia recebida (imagem, áudio, vídeo, documento) ───────────────
+// O navegador não acessa a mídia da Meta: o download exige o token da conta e a
+// URL devolvida pela Meta expira em minutos. O proxy resolve a URL na hora e
+// repassa o arquivo em stream. O mediaId só vale enquanto a Meta guarda a mídia
+// (observado: ~7 dias); depois disso a consulta falha e respondemos 404.
+
+// Só seguimos URLs de download da própria Meta (a URL vem da resposta da API)
+const META_MEDIA_HOST = /(^|\.)(fbsbx\.com|facebook\.com|fbcdn\.net|whatsapp\.net)$/i;
+
+const getMedia = async (req, res) => {
+  try {
+    const { wabaAccountId, mediaId } = req.params;
+    if (!/^\d{1,40}$/.test(mediaId)) {
+      return res.status(400).json({ success: false, message: 'ID de mídia inválido.' });
+    }
+
+    const wabaAccount = await getWabaAccount(req.user.id, wabaAccountId);
+    if (!wabaAccount) {
+      return res.status(404).json({ success: false, message: 'Conta WABA não encontrada.' });
+    }
+
+    // A mídia precisa pertencer a uma mensagem desta conta — impede usar o
+    // token da conta para baixar mídias arbitrárias
+    const owned = await prisma.message.findFirst({
+      where: { wabaAccountId, content: { path: ['mediaId'], equals: mediaId } },
+      select: { id: true },
+    });
+    if (!owned) {
+      return res.status(404).json({ success: false, message: 'Mídia não encontrada.' });
+    }
+
+    const auth = { Authorization: `Bearer ${wabaAccount.accessToken}` };
+
+    let info;
+    try {
+      const r = await axios.get(`${META_BASE_URL}/${META_API_VERSION}/${mediaId}`, { headers: auth, timeout: 10000 });
+      info = r.data;
+    } catch (err) {
+      console.warn('[WhatsApp] getMedia: Meta não retornou a mídia', mediaId, '→', err.response?.data?.error?.message || err.message);
+      return res.status(404).json({ success: false, message: 'Mídia indisponível (pode ter expirado na Meta).' });
+    }
+
+    let host;
+    try { host = new URL(info?.url).hostname; } catch { host = ''; }
+    if (!META_MEDIA_HOST.test(host)) {
+      console.error('[WhatsApp] getMedia: URL de mídia inesperada da Meta:', info?.url);
+      return res.status(502).json({ success: false, message: 'Resposta inesperada da Meta ao buscar a mídia.' });
+    }
+
+    const file = await axios.get(info.url, {
+      // Sem User-Agent o CDN da Meta às vezes devolve HTML em vez do arquivo
+      headers: { ...auth, 'User-Agent': 'ZapFood/1.0' },
+      responseType: 'stream',
+      timeout: 30000,
+    });
+
+    res.set('Content-Type', info.mime_type || file.headers['content-type'] || 'application/octet-stream');
+    if (file.headers['content-length']) res.set('Content-Length', file.headers['content-length']);
+    // Cache de 1h no navegador: reabrir a conversa não baixa tudo de novo
+    res.set('Cache-Control', 'private, max-age=3600');
+
+    file.data.on('error', (err) => {
+      console.error('[WhatsApp] getMedia: erro no stream da mídia', mediaId, '→', err.message);
+      res.destroy(err);
+    });
+    file.data.pipe(res);
+  } catch (error) {
+    console.error('[WhatsApp] getMedia:', error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Erro ao buscar mídia.' });
+    }
+  }
+};
+
+module.exports = { sendTextMessage, sendTemplate, webhookVerify, webhookReceive, getMessages, getMedia };

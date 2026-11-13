@@ -296,6 +296,56 @@ function msgPreview(c){
   if(m.type==='TEMPLATE')return'📋 Template';
   return'Mensagem';
 }
+// Mídia recebida: o proxy exige Authorization, que <img>/<audio>/<video> não
+// enviam — por isso baixamos com fetch e exibimos via blob URL.
+const MEDIA_LABEL={IMAGE:'📷 Imagem',AUDIO:'🎵 Áudio',VIDEO:'🎥 Vídeo',DOCUMENT:'📄 Documento'};
+function fetchMediaBlob(wabaId,mediaId,token){
+  return fetch(`${API}/api/whatsapp/${wabaId}/media/${mediaId}`,{headers:{'Authorization':`Bearer ${token}`}})
+    .then(r=>{if(!r.ok)throw new Error('mídia indisponível');return r.blob();});
+}
+function MediaMsg({m,wabaId,token}){
+  const c=m.content||{};
+  const isDoc=m.type==='DOCUMENT';
+  const [src,setSrc]=useState(null);
+  const [err,setErr]=useState(false);
+  const [busy,setBusy]=useState(false);
+  // Imagem/áudio/vídeo carregam ao aparecer; documento só baixa ao clicar
+  useEffect(()=>{
+    if(isDoc||!c.mediaId||!wabaId)return;
+    let url=null,alive=true;
+    fetchMediaBlob(wabaId,c.mediaId,token)
+      .then(b=>{if(!alive)return;url=URL.createObjectURL(b);setSrc(url);})
+      .catch(()=>{if(alive)setErr(true);});
+    return()=>{alive=false;if(url)URL.revokeObjectURL(url);};
+  },[c.mediaId,wabaId]);
+  const downloadDoc=()=>{
+    if(busy)return;setBusy(true);setErr(false);
+    fetchMediaBlob(wabaId,c.mediaId,token).then(b=>{
+      const url=URL.createObjectURL(b);
+      const a=document.createElement('a');a.href=url;a.download=c.filename||'documento';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),10000);
+    }).catch(()=>setErr(true)).finally(()=>setBusy(false));
+  };
+  const label=MEDIA_LABEL[m.type]||'[Mensagem]';
+  let body;
+  if(!c.mediaId)body=<p style={{fontSize:13,color:C.tx}}>{label}</p>;
+  else if(isDoc)body=<button onClick={downloadDoc} disabled={busy}
+      style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',border:`1px solid ${C.br}`,borderRadius:8,background:'rgba(255,255,255,.6)',cursor:busy?'wait':'pointer',fontSize:13,color:C.dkk,textAlign:'left',maxWidth:'100%'}}>
+      <span>📄</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{busy?'Baixando...':(c.filename||'Documento')}</span>
+    </button>;
+  else if(err)body=<p style={{fontSize:13,color:C.mt}}>{label} (indisponível)</p>;
+  else if(!src)body=<p style={{fontSize:12,color:C.mt}}>Carregando {label.toLowerCase()}...</p>;
+  else if(m.type==='IMAGE')body=<img src={src} alt="Imagem recebida" onClick={()=>window.open(src,'_blank')}
+      style={{maxWidth:'100%',borderRadius:8,cursor:'pointer',display:'block'}}/>;
+  else if(m.type==='AUDIO')body=<audio controls src={src} style={{width:260,maxWidth:'100%',height:40,display:'block'}}/>;
+  else if(m.type==='VIDEO')body=<video controls src={src} style={{maxWidth:'100%',borderRadius:8,display:'block'}}/>;
+  return <>
+    {body}
+    {isDoc&&err&&<p style={{fontSize:11,color:C.mt,marginTop:3}}>Documento indisponível (pode ter expirado).</p>}
+    {c.caption&&<p style={{fontSize:12,color:C.tx,lineHeight:1.4,marginTop:4}}>{c.caption}</p>}
+  </>;
+}
 function Conversations({token}){
   const [wabaId,setWabaId]=useState(null);
   const [contacts,setContacts]=useState([]);
@@ -419,7 +469,9 @@ function Conversations({token}){
               :m.type==='IMAGE'?'📷 Imagem':m.type==='AUDIO'?'🎵 Áudio':m.type==='VIDEO'?'🎥 Vídeo':m.type==='DOCUMENT'?'📄 Documento':'[Mensagem]';
             return <div key={m.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',marginBottom:5}}>
               <div style={{maxWidth:'65%',padding:'8px 11px',boxShadow:'0 1px 2px rgba(0,0,0,.08)',background:isMe?C.bbl:'#fff',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px'}}>
-                <p style={{fontSize:13,color:C.tx,lineHeight:1.4}}>{txt}</p>
+                {MEDIA_LABEL[m.type]
+                  ?<MediaMsg m={m} wabaId={wabaId} token={token}/>
+                  :<p style={{fontSize:13,color:C.tx,lineHeight:1.4}}>{txt}</p>}
                 <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:3,marginTop:2}}>
                   <span style={{fontSize:11,color:C.mt}}>{fmtTime(m.createdAt)}</span>
                   {isMe&&<Status s={m.status&&m.status.toLowerCase()}/>}

@@ -8,6 +8,7 @@ const {
   webhookVerify,
   webhookReceive,
   getMessages,
+  getMedia,
 } = require('../controllers/whatsappController');
 const { listContacts, upsertContact, getContact } = require('../controllers/contactController');
 const { authenticate } = require('../middlewares/auth');
@@ -49,6 +50,10 @@ router.post(
 // Buscar mensagens de um contato
 // GET /api/whatsapp/:wabaAccountId/contacts/:contactId/messages
 router.get('/:wabaAccountId/contacts/:contactId/messages', getMessages);
+
+// Proxy de mídia recebida (a Meta exige token; a URL dela expira)
+// GET /api/whatsapp/:wabaAccountId/media/:mediaId
+router.get('/:wabaAccountId/media/:mediaId', getMedia);
 
 // Listar contatos
 // GET /api/whatsapp/:wabaAccountId/contacts

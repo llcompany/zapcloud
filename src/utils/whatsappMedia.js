@@ -75,21 +75,35 @@ function ensureMediaBucket(supabase) {
  * em content.storagePath — a partir daí a mídia não depende mais da Meta.
  * Nunca lança: falha só é logada (a mensagem já está salva e o proxy ainda
  * consegue servir pela Meta enquanto ela guardar o arquivo).
+ *
+ * Retorna o resultado: 'archived' | 'expired' (a Meta não tem mais o arquivo) |
+ * 'too_large' | 'skipped' (sem mediaId, já arquivada ou Supabase não configurado) |
+ * 'error' (falha temporária — rede, Supabase, token; vale tentar de novo).
  */
 async function archiveInboundMedia({ messageId, wabaAccountId, accessToken, content }) {
   const mediaId = content?.mediaId;
-  if (!mediaId || content.storagePath) return;
+  if (!mediaId || content.storagePath) return 'skipped';
   try {
     const supabase = getSupabase();
     if (!supabase) {
       console.warn('[Mídia] SUPABASE_URL/SUPABASE_SERVICE_KEY ausentes — mídia não arquivada:', mediaId);
-      return;
+      return 'skipped';
     }
 
-    const info = await resolveMetaMedia(mediaId, accessToken);
+    let info;
+    try {
+      info = await resolveMetaMedia(mediaId, accessToken);
+    } catch (err) {
+      // Código 100 = objeto não existe mais na Meta (mídia expirada)
+      if (err.response?.data?.error?.code === 100) {
+        console.warn('[Mídia] Mídia expirada na Meta, não dá para arquivar:', mediaId);
+        return 'expired';
+      }
+      throw err;
+    }
     if (info.file_size && info.file_size > MAX_ARCHIVE_BYTES) {
       console.warn(`[Mídia] Arquivo grande demais para arquivar (${info.file_size} bytes):`, mediaId);
-      return;
+      return 'too_large';
     }
 
     const file = await downloadMetaMedia(info.url, accessToken, 'arraybuffer');
@@ -109,8 +123,10 @@ async function archiveInboundMedia({ messageId, wabaAccountId, accessToken, cont
       data: { content: { ...content, storagePath, mimeType, fileSize: file.data.byteLength } },
     });
     console.log('[Mídia] Arquivada no Supabase:', storagePath);
+    return 'archived';
   } catch (err) {
     console.error('[Mídia] Falha ao arquivar', mediaId, '→', err.response?.data?.error?.message || err.message);
+    return 'error';
   }
 }
 

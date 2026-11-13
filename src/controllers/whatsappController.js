@@ -506,6 +506,11 @@ const getMedia = async (req, res) => {
       // Falhou a leitura no Supabase: tenta a Meta abaixo como reserva
     }
 
+    // Já confirmada como expirada (scripts/archive-old-media.js): nem consulta a Meta
+    if (owned.content?.expired) {
+      return res.status(404).json({ success: false, message: 'Mídia indisponível (expirou na Meta antes de ser arquivada).' });
+    }
+
     // 2) Meta (enquanto ela ainda guardar o arquivo)
     let info;
     try {

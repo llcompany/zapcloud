@@ -2,6 +2,7 @@ const axios = require('axios');
 
 
 const prisma = require('../utils/prisma');
+const { resolveMetaMedia, downloadMetaMedia, archiveInboundMedia, readArchivedMedia } = require('../utils/whatsappMedia');
 
 const META_BASE_URL = process.env.META_BASE_URL || 'https://graph.facebook.com';
 const META_API_VERSION = process.env.META_API_VERSION || 'v19.0';
@@ -328,7 +329,7 @@ const processInboundMessage = async (value, msg) => {
       content = msg[msg.type] || {};
     }
 
-    await prisma.message.create({
+    const saved = await prisma.message.create({
       data: {
         wabaAccountId: wabaAccount.id,
         contactId: contact.id,
@@ -342,6 +343,17 @@ const processInboundMessage = async (value, msg) => {
     });
 
     console.log(`[Webhook] Mensagem recebida de ${phone}`);
+
+    // Arquiva a mídia no Supabase já agora: a Meta só guarda o arquivo por ~7 dias.
+    // Sem await — um vídeo grande não pode atrasar as próximas mensagens do lote.
+    if (content.mediaId) {
+      archiveInboundMedia({
+        messageId: saved.id,
+        wabaAccountId: wabaAccount.id,
+        accessToken: wabaAccount.accessToken,
+        content,
+      });
+    }
 
     // Auto-reply, exceto se a mensagem vier do próprio número da conta (evitar loop)
     if (phone !== wabaAccount.phoneNumberId && phone !== value.metadata?.display_phone_number) {
@@ -453,12 +465,10 @@ const getMessages = async (req, res) => {
 
 // ─── Proxy de mídia recebida (imagem, áudio, vídeo, documento) ───────────────
 // O navegador não acessa a mídia da Meta: o download exige o token da conta e a
-// URL devolvida pela Meta expira em minutos. O proxy resolve a URL na hora e
-// repassa o arquivo em stream. O mediaId só vale enquanto a Meta guarda a mídia
-// (observado: ~7 dias); depois disso a consulta falha e respondemos 404.
-
-// Só seguimos URLs de download da própria Meta (a URL vem da resposta da API)
-const META_MEDIA_HOST = /(^|\.)(fbsbx\.com|facebook\.com|fbcdn\.net|whatsapp\.net)$/i;
+// URL devolvida pela Meta expira em minutos.
+// 1) Mídia já arquivada (content.storagePath) → serve do Supabase (bucket privado).
+// 2) Senão → resolve a URL na Meta e repassa em stream. O mediaId só vale enquanto
+//    a Meta guarda a mídia (observado: ~7 dias); depois disso respondemos 404.
 
 const getMedia = async (req, res) => {
   try {
@@ -476,36 +486,46 @@ const getMedia = async (req, res) => {
     // token da conta para baixar mídias arbitrárias
     const owned = await prisma.message.findFirst({
       where: { wabaAccountId, content: { path: ['mediaId'], equals: mediaId } },
-      select: { id: true },
+      select: { id: true, content: true },
     });
     if (!owned) {
       return res.status(404).json({ success: false, message: 'Mídia não encontrada.' });
     }
 
-    const auth = { Authorization: `Bearer ${wabaAccount.accessToken}` };
+    // 1) Cópia permanente no Supabase
+    const { storagePath, mimeType } = owned.content || {};
+    if (storagePath) {
+      const buffer = await readArchivedMedia(storagePath);
+      if (buffer) {
+        res.set('Content-Type', mimeType || 'application/octet-stream');
+        res.set('Content-Length', String(buffer.length));
+        // Arquivo no Supabase não muda: cache mais longo no navegador
+        res.set('Cache-Control', 'private, max-age=86400');
+        return res.end(buffer);
+      }
+      // Falhou a leitura no Supabase: tenta a Meta abaixo como reserva
+    }
 
+    // 2) Meta (enquanto ela ainda guardar o arquivo)
     let info;
     try {
-      const r = await axios.get(`${META_BASE_URL}/${META_API_VERSION}/${mediaId}`, { headers: auth, timeout: 10000 });
-      info = r.data;
+      info = await resolveMetaMedia(mediaId, wabaAccount.accessToken);
     } catch (err) {
+      if (err.unexpectedUrl) {
+        console.error('[WhatsApp] getMedia:', err.message);
+        return res.status(502).json({ success: false, message: 'Resposta inesperada da Meta ao buscar a mídia.' });
+      }
       console.warn('[WhatsApp] getMedia: Meta não retornou a mídia', mediaId, '→', err.response?.data?.error?.message || err.message);
       return res.status(404).json({ success: false, message: 'Mídia indisponível (pode ter expirado na Meta).' });
     }
 
-    let host;
-    try { host = new URL(info?.url).hostname; } catch { host = ''; }
-    if (!META_MEDIA_HOST.test(host)) {
-      console.error('[WhatsApp] getMedia: URL de mídia inesperada da Meta:', info?.url);
-      return res.status(502).json({ success: false, message: 'Resposta inesperada da Meta ao buscar a mídia.' });
-    }
+    const file = await downloadMetaMedia(info.url, wabaAccount.accessToken, 'stream');
 
-    const file = await axios.get(info.url, {
-      // Sem User-Agent o CDN da Meta às vezes devolve HTML em vez do arquivo
-      headers: { ...auth, 'User-Agent': 'ZapFood/1.0' },
-      responseType: 'stream',
-      timeout: 30000,
-    });
+    // Rede de segurança: se o arquivamento do webhook falhou, arquiva agora
+    // (em paralelo, sem atrasar a resposta)
+    if (!storagePath) {
+      archiveInboundMedia({ messageId: owned.id, wabaAccountId, accessToken: wabaAccount.accessToken, content: owned.content });
+    }
 
     res.set('Content-Type', info.mime_type || file.headers['content-type'] || 'application/octet-stream');
     if (file.headers['content-length']) res.set('Content-Length', file.headers['content-length']);

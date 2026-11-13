@@ -512,6 +512,34 @@ const trackClick = async (req, res) => {
   }
 };
 
+// ─── Snapshot de mês fechado ──────────────────────────────────────────────────
+// Retorna { year, month } quando o período pedido é exatamente um mês completo
+// (YYYY-MM-01 até o último dia do mesmo mês) que já terminou há tempo suficiente
+// para ser congelado; senão null.
+// Usa UTC, mesma referência com que start/end são montados no relatório.
+const closedMonthOf = (startDate, endDate) => {
+  const re = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const s = re.exec(startDate || '');
+  const e = re.exec(endDate || '');
+  if (!s || !e) return null;
+
+  const year  = Number(s[1]);
+  const month = Number(s[2]);
+  if (month < 1 || month > 12 || s[3] !== '01') return null;
+
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (Number(e[1]) !== year || Number(e[2]) !== month || Number(e[3]) !== lastDay) return null;
+
+  // Carência: só congela a partir do dia 2 do mês seguinte (00:00 UTC), para
+  // não fixar o mês antes de chegarem pedidos atrasados das primeiras horas do dia 1.
+  // Até lá o mês é calculado em tempo real, sem gravar snapshot.
+  // Date.UTC(year, month, 2): `month` é 1-12, então aponta para o mês seguinte.
+  const freezeFrom = Date.UTC(year, month, 2);
+  if (Date.now() < freezeFrom) return null;
+
+  return { year, month };
+};
+
 // ─── Relatório geral de campanhas ─────────────────────────────────────────────
 const getCampaignReport = async (req, res) => {
   try {
@@ -519,7 +547,32 @@ const getCampaignReport = async (req, res) => {
     const { startDate, endDate } = req.query;
 
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 86400000);
-    const end   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+    const end   = endDate   ? new Date(new Date(endDate).setUTCHours(23, 59, 59, 999)) : new Date();
+
+    // Mês fechado: devolve o snapshot congelado se existir (sem queries pesadas)
+    const closed = closedMonthOf(startDate, endDate);
+    if (closed) {
+      const snap = await prisma.reportSnapshot.findUnique({
+        where: { wabaAccountId_year_month: { wabaAccountId, ...closed } },
+      });
+      if (snap) {
+        return res.json({
+          success: true,
+          data: {
+            totalDisparos: snap.totalDisparos,
+            totalGasto: snap.totalGasto,
+            vendasNoMes: snap.vendasNoMes,
+            receitaNoMes: snap.receitaNoMes,
+            vendasCarryover: snap.vendasCarryover,
+            receitaCarryover: snap.receitaCarryover,
+            startDate: start,
+            endDate: end,
+            snapshot: true,
+            snapshotAt: snap.createdAt,
+          },
+        });
+      }
+    }
 
     // Campanhas disparadas no período (startedAt ou createdAt dentro do range)
     const campaigns = await prisma.campaign.findMany({
@@ -630,6 +683,20 @@ const getCampaignReport = async (req, res) => {
       receitaCarryover = Number(coRows[0]?.receita_co) || 0;
     }
 
+    // Mês fechado sem snapshot: congela o resultado calculado agora.
+    // upsert com update vazio tolera duas requisições simultâneas — a segunda
+    // não sobrescreve nem quebra na unique (wabaAccountId, year, month).
+    if (closed) {
+      await prisma.reportSnapshot.upsert({
+        where: { wabaAccountId_year_month: { wabaAccountId, ...closed } },
+        update: {},
+        create: {
+          wabaAccountId, ...closed,
+          totalDisparos, totalGasto, vendasNoMes, receitaNoMes, vendasCarryover, receitaCarryover,
+        },
+      });
+    }
+
     res.json({
       success: true,
       data: { totalDisparos, totalGasto, vendasGeradas, receitaGerada, vendasNoMes, receitaNoMes, vendasCarryover, receitaCarryover, startDate: start, endDate: end },
@@ -640,10 +707,29 @@ const getCampaignReport = async (req, res) => {
   }
 };
 
+// ─── Apagar snapshot (força recálculo na próxima consulta) ────────────────────
+// Usado após importação retroativa de pedidos de um mês já fechado.
+const deleteReportSnapshot = async (req, res) => {
+  try {
+    const { wabaAccountId } = req.params;
+    const year  = Number(req.params.year);
+    const month = Number(req.params.month);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(400).json({ success: false, message: 'Ano/mês inválido.' });
+    }
+
+    const { count } = await prisma.reportSnapshot.deleteMany({ where: { wabaAccountId, year, month } });
+    res.json({ success: true, deleted: count });
+  } catch (err) {
+    console.error('[Campaign] Erro ao apagar snapshot do relatório:', err.message);
+    res.status(500).json({ success: false, message: 'Erro ao apagar snapshot.' });
+  }
+};
+
 // Campanhas consideradas pelos relatórios agregados — mesmo filtro do relatório geral
 const findReportCampaignIds = async (wabaAccountId, startDate, endDate) => {
   const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 86400000);
-  const end   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+  const end   = endDate   ? new Date(new Date(endDate).setUTCHours(23, 59, 59, 999)) : new Date();
   const campaigns = await prisma.campaign.findMany({
     where: {
       wabaAccountId,
@@ -1010,4 +1096,4 @@ const getCampaignConverters = async (req, res) => {
   }
 };
 
-module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, pauseCampaign, resumeCampaign, forceCompleteCampaign, getCampaignConverters };
+module.exports = { listCampaigns, createCampaign, previewSegment, getSegmentOptions, executeCampaign, getCampaign, testSend, trackClick, getCampaignConversions, getCampaignReport, getCampaignSpeedReport, getCampaignRecurrenceReport, pauseCampaign, resumeCampaign, forceCompleteCampaign, getCampaignConverters, deleteReportSnapshot };

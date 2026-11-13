@@ -18,6 +18,7 @@ const multipedidosRoutes = require('./routes/multipedidos');
 const dashboardRoutes    = require('./routes/dashboard');
 const maintenanceRoutes  = require('./routes/maintenance');
 const brendiRoutes       = require('./routes/brendi');
+const reportRoutes       = require('./routes/reports');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -85,6 +86,7 @@ app.use('/api/campaigns',    campaignRoutes);
 app.use('/api/wa-business',  waBusinessRoutes);
 app.use('/api/multipedidos', multipedidosRoutes);
 app.use('/api/dashboard',    dashboardRoutes);
+app.use('/api/reports',      reportRoutes);
 app.use('/internal',         maintenanceRoutes);
 app.use('/webhook/brendi',   brendiRoutes);
 

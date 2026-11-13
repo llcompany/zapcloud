@@ -321,3 +321,25 @@ enum ExecutionStatus {
   FAILED
   SKIPPED
 }
+
+// ==========================================
+// SNAPSHOT DE RELATÓRIO MENSAL
+// Congela os números de um mês fechado: mês atual é tempo real,
+// meses passados são lidos daqui. Apagar a linha força recálculo.
+// ==========================================
+model ReportSnapshot {
+  id               String   @id @default(cuid())
+  wabaAccountId    String
+  year             Int
+  month            Int      // 1-12
+  totalDisparos    Int
+  totalGasto       Float?
+  vendasNoMes      Int
+  receitaNoMes     Float
+  vendasCarryover  Int
+  receitaCarryover Float
+  createdAt        DateTime @default(now())
+
+  @@unique([wabaAccountId, year, month])
+  @@map("report_snapshots")
+}

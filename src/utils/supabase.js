@@ -9,9 +9,17 @@ function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
+
+  // @supabase/supabase-js v2 inicializa um RealtimeClient que exige WebSocket.
+  // No Node.js < 22 não há WebSocket nativo — passamos o pacote `ws` como transport
+  // para evitar o erro "Node.js detected but native WebSocket not found".
+  // O backend usa apenas Storage (nunca Realtime), então o ws nunca chega a conectar.
+  let wsImpl;
+  try { wsImpl = require('ws'); } catch (_) { /* ws não instalado — será corrigido pelo engines */ }
+
   client = createClient(url, key, {
     auth: { persistSession: false },
-    realtime: { disabled: true },   // backend usa só Storage — sem WebSocket
+    realtime: wsImpl ? { transport: wsImpl } : {},
   });
   return client;
 }

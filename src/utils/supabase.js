@@ -9,7 +9,10 @@ function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
-  client = createClient(url, key, { auth: { persistSession: false } });
+  client = createClient(url, key, {
+    auth: { persistSession: false },
+    realtime: { disabled: true },   // backend usa só Storage — sem WebSocket
+  });
   return client;
 }
 
